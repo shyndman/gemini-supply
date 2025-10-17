@@ -29,7 +29,7 @@ repos:
       # Run the formatter.
       - id: ruff-format
 
-  - repo: https://github.com/shyndman/unroot-llm-files-pre-commit
+  - repo: https://github.com/shyndman/ai-deroot-pre-commit
     rev: v0.0.9
     hooks:
       - id: setup-managed-symlinks
