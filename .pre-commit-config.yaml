@@ -1,0 +1,21 @@
+repos:
+  - repo: https://github.com/shyndman/unroot-llm-files-pre-commit
+    rev: v0.0.8
+    hooks:
+      # Sets up symlinks after checkout/merge
+      - id: setup-managed-symlinks
+        args:
+          - --hidden-dir=.aid
+          - --files=AGENTS.md,CLAUDE.md
+
+      # Validates symlinks during normal commits
+      - id: check-managed-symlinks
+        args:
+          - --hidden-dir=.ai
+          - --files=AGENTS.md,CLAUDE.md
+
+      # Ensures .gitignore includes symlinked files
+      - id: update-gitignore-for-symlinks
+        args:
+          - --hidden-dir=.ai
+          - --files=AGENTS.md,CLAUDE.md
