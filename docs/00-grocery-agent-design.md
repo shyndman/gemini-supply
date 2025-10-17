@@ -11,7 +11,7 @@ This document describes the design and implementation plan for enhancing gemini-
 ## Use Case
 
 1. User adds items to shopping list over time
-2. User manually invokes grocery agent: `uv run grocery-agent shop`
+2. User runs the agent with a shopping list path: `uv run gemini-supply --list ~/.config/gemini-supply/shopping_list.yaml`
 3. Agent processes ALL uncompleted items sequentially (one agent instance per item)
 4. For each item:
    - Agent adds item to cart
@@ -175,11 +175,10 @@ See separate documentation for integrations:
 
 **Manual Invocation:**
 ```bash
-# User runs this when ready to shop
-uv run grocery-agent shop
+uv run gemini-supply --list ~/.config/gemini-supply/shopping_list.yaml
 ```
 
-This command:
+Where `--list` points to a YAML shopping list file. This invocation:
 - Queries shopping list provider for ALL uncompleted items
 - Processes each item sequentially (one agent instance per item)
 - Generates summary report after all items processed
@@ -188,24 +187,30 @@ This command:
 ### 3. Authentication Management
 
 **Initial Setup (Manual):**
-- Command: `uv run grocery-agent authenticate`
-- Opens headful browser for user to log in manually
-- Saves Playwright storage state to `~/.config/gemini-supply/metro_auth.json`
+- Run a one-time headful authentication flow to sign in to metro.ca
+- Save Playwright storage state to `~/.config/gemini-supply/metro_auth.json`
+- A small authentication utility/flow will perform this; CLI details TBD in README
 
 **Automated Usage:**
-- Load saved storage state when creating browser context
-- Reuses cookies, local storage, session storage
+- When creating the browser context, load the saved storage state
+- Reuse cookies, local storage, and session storage across sessions
 
 **Session Refresh:**
 - After each successful shopping session, save updated storage state
 - Extends session lifetime by refreshing tokens/cookies
 
 **Expiry Handling:**
-- If agent detects redirect to login page → fail with "auth_expired" error
+- DOM-based authentication check (see below) determines if session is valid
+- If unauthenticated → fail current item with "auth_expired" and stop session
 - Log error and notify via provider (if supported)
-- User re-runs authentication: `uv run grocery-agent authenticate`
 
 **Session Lifetime:** ~1 week (to be validated in practice)
+
+**DOM Authentication Check:**
+- Implement `is_authenticated()` in the Metro browser class
+- Heuristic: presence of `#authenticatedButton` indicates authenticated; absence indicates unauthenticated
+- Called from `current_state()` and after first navigation to metro.ca
+- On unauthenticated: raise `AuthExpiredError` for the orchestrator to handle
 
 ### 4. Domain Restrictions & Safety
 
@@ -222,6 +227,14 @@ This command:
 - Playwright route handler intercepts all requests
 - Check URL against blocked patterns and domain whitelist
 - Abort blocked requests, continue allowed ones
+- Log blocked hosts to help tune the allowlist over time
+
+**Metro Browser Class:**
+- A specialized Playwright subclass, `AuthenticatedMetroShopperBrowser`, will:
+  - Load/save Playwright storage state (authentication persistence)
+  - Enforce domain allowlist and URL blocklist
+  - Inject a status banner on every document load and keep it updated across SPA route changes
+  - Log blocked hosts for developer visibility
 
 **Recommended Domain Allowlist (Observed):**
 - Required for core shopping:
@@ -258,9 +271,15 @@ Notes:
 - Provides `window.setCurrentShoppingItem(itemName)` function for orchestrator
 
 **Implementation Notes:**
+- Use `context.add_init_script` to inject on every full document load (prevents flicker)
+- Hook SPA navigation by wrapping `history.pushState/replaceState` and listening to `popstate`
 - IIFE wrapper to prevent duplicate injection
 - Check for `window.__groceryAgentInjected` flag
-- Prepend banner to document.body
+- Prepend banner to `document.body`
+
+**What counts as navigation (Playwright):**
+- A navigation is a top-level document change (e.g., `page.goto`, link causing a full load)
+- SPA route changes via history API are not navigations; the init script + hooks keep the banner in sync
 
 **Design Decision: Trust the Agent**
 - No automatic cart change detection
@@ -273,18 +292,28 @@ Notes:
 
 Two functions registered with Gemini API using `FunctionDeclaration.from_callable()`:
 
-1. **report_item_added(item_name, price, url, quantity)**
+1. **report_item_added(item_name, price_text, price_cents, url, quantity)**
    - Called when item successfully added to cart
-   - Returns `ItemAddedResult` TypedDict with: item_name, price, url, quantity
+   - Returns `ItemAddedResult` (TypedDict) with fields:
+     - `item_name: str`
+     - `price_text: str` (e.g., "$12.34")
+     - `price_cents: int` (e.g., 1234)
+     - `url: str`
+     - `quantity: int` (default 1 if omitted)
 
 2. **report_item_not_found(item_name, explanation)**
    - Called when item cannot be found after reasonable attempts
-   - Returns `ItemNotFoundResult` TypedDict with: item_name, explanation
+   - Returns `ItemNotFoundResult` (TypedDict) with: `item_name: str`, `explanation: str`
 
 **Type Requirements:**
-- All custom functions must return TypedDict (never `dict[str, object]` or `Any`)
-- Add return types to `FunctionResponseT` union type
-- Add handler case in `BrowserAgent.handle_action()`
+- Internals use Pydantic models for validation and math (e.g., Decimal for totals)
+- Tool I/O uses TypedDicts only (never `dict[str, object]` or `Any`)
+- Add these TypedDicts to the `FunctionResponseT` union type
+- Add handler cases in `BrowserAgent.handle_action()` that return the TypedDict payloads
+
+**Terminal Behavior (Implementation Detail):**
+- The orchestrator treats the first call to `report_item_added(...)` or `report_item_not_found(...)` as terminal for that item
+- Do not communicate this termination behavior in tool docstrings or prompts
 
 **Task Prompt Template:**
 
@@ -300,6 +329,12 @@ Template structure:
   - Stay on metro.ca domain only
   - No payment info, account settings, or checkout
   - Focus only on finding and adding the requested item
+
+**Navigation and Search Guidance:**
+- Prefer using `navigate` to directly open the search results page (SRP):
+  - `https://www.metro.ca/en/online-grocery/search?filter={ENCODED_QUERY}`
+- Alternatively, use the header search input present on all pages
+- The built-in `search()` tool is no-arg; in grocery mode it may land on the Metro search area without a filter, but `navigate` to SRP is more reliable
 
 ### 8. State Tracking via Provider
 
@@ -352,7 +387,7 @@ Each provider implementation decides how to:
 |-------|-----------|--------|
 | Product not found | Agent calls `report_item_not_found()` | Call `mark_not_found()`, collect for report |
 | Auth expired | Redirect to login detected | Log error, stop shopping, notify via provider |
-| Agent timeout | No function call after 5 min | Call `mark_failed()`, add to report, continue to next |
+| Agent timeout | Internal time budget exceeded (default 5 min) or max turns reached | Call `mark_failed()`, add to report, continue to next |
 | Network error | Exception during browser operations | Call `mark_failed()`, retry once, then move to next item |
 | Agent error | Exception in agent loop | Call `mark_failed()`, log error, continue to next item |
 
@@ -367,8 +402,9 @@ Generated after processing all items, includes:
 Delivered via `provider.send_summary()`.
 
 **Timeouts:**
-- Max 5 minutes per item (hard timeout)
-- If exceeded, mark as failed and move to next item
+- Internal time budget per item: default 5 minutes
+- Max turns per item: default 40
+- If either is exceeded, mark as failed and move to next item
 
 ### 10. Configuration File Locations
 
@@ -407,7 +443,7 @@ src/gemini_supply/
 │   ├── shopping_list.py     # ShoppingListProvider interface + YAML implementation
 │   └── config.py           # Configuration management
 ├── computers/
-│   └── protected_computer.py  # Enhanced PlaywrightComputer with restrictions
+│   └── authenticated_metro_browser.py  # AuthenticatedMetroShopperBrowser: Playwright subclass with auth + restrictions
 ├── grocery_main.py          # CLI entrypoint for grocery agent
 └── agent.py                 # (modifications to existing)
 ```
@@ -421,18 +457,19 @@ src/gemini_supply/
 - Create `config.py` to handle loading from `~/.config/gemini-supply/`
 - Validate configuration on startup
 
-### Phase 2: Protected Browser Environment
+### Phase 2: Authenticated Metro Browser
 
-**2.1 ProtectedComputer Class**
+**2.1 AuthenticatedMetroShopperBrowser Class**
 - Extend `PlaywrightComputer`
-- Add authentication loading
-- Implement route blocking
-- Add success page injection
+- Load saved authentication via Playwright storage state
+- Implement route blocking (allowlist + blocklist)
+- Inject status banner on document load; keep in sync on SPA route changes
+- Log blocked hosts for allowlist tuning
 
 **2.2 JavaScript Injection**
 - Status banner
-- Confirmation dialog
 - Helper functions for agent interaction
+- Use `context.add_init_script`; hook history API to catch SPA route changes
 
 **2.3 Domain Restrictions**
 - URL pattern blocking
@@ -449,6 +486,7 @@ src/gemini_supply/
 - Task prompt construction with tool instructions
 - Result collection and aggregation
 - Summary report generation
+ - Treat first `report_item_added()` or `report_item_not_found()` call as terminal for the item
 
 **3.2 Agent Modifications**
 - Add custom tool functions: `report_item_added()` and `report_item_not_found()`
@@ -456,14 +494,14 @@ src/gemini_supply/
 - Handle tool function results in agent loop
 - Signal completion when tool functions are called
 
-**3.3 Authentication Command**
-- `uv run grocery-agent authenticate` flow
-- Manual login with saved state
+**3.3 Authentication Flow**
+- Separate one-time utility opens headful browser for manual login
+- Saves storage state to `~/.config/gemini-supply/metro_auth.json`
 - Validation of successful auth
 
 **3.4 Summary Generation**
 - Format results as markdown
-- Calculate total estimated cost
+- Calculate total estimated cost (use Decimal internally; present `$`-formatted values)
 - Pass summary to provider via `send_summary()`
 
 ### Phase 4: Testing & Refinement
