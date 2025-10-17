@@ -181,3 +181,8 @@ node_modules/
 # The actual files are stored in .llm/ - commit changes there instead
 /AGENTS.md
 /CLAUDE.md
+
+# Root-level symlinks managed by unroot-llm-files-pre-commit hook
+# These are symlinks pointing to files in .ai/ and should not be committed
+# The actual files are stored in .ai/ - commit changes there instead
+/.claude

@@ -30,22 +30,11 @@ repos:
       - id: ruff-format
 
   - repo: https://github.com/shyndman/unroot-llm-files-pre-commit
-    rev: v0.0.8
+    rev: v0.0.9
     hooks:
-      # Sets up symlinks after checkout/merge
       - id: setup-managed-symlinks
-        args:
-          - --hidden-dir=.aid
-          - --files=AGENTS.md,CLAUDE.md
-
-      # Validates symlinks during normal commits
+        args: [--hidden-dir=.ai, '--files=CLAUDE.md,AGENTS.md,.claude', --migrate=move]
       - id: check-managed-symlinks
-        args:
-          - --hidden-dir=.ai
-          - --files=AGENTS.md,CLAUDE.md
-
-      # Ensures .gitignore includes symlinked files
+        args: [--hidden-dir=.ai, '--files=CLAUDE.md,AGENTS.md,.claude']
       - id: update-gitignore-for-symlinks
-        args:
-          - --hidden-dir=.ai
-          - --files=AGENTS.md,CLAUDE.md
+        args: [--hidden-dir=.ai, '--files=CLAUDE.md,AGENTS.md,.claude']
