@@ -1,0 +1,31 @@
+[project]
+name = "gemini-supply"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Scott Hyndman", email = "scotty.hyndman@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "google-genai>=1.40.0",
+    "playwright==1.52.0",
+    "pydantic==2.11.4",
+    "pytest>=8.4.2",
+    "pytest-asyncio>=0.24.0",
+    "pytest-mock>=3.14.0",
+    "rich>=14.2.0",
+    "termcolor==3.1.0",
+]
+
+[project.scripts]
+gemini-supply = "gemini_supply:main"
+
+[build-system]
+requires = ["uv_build>=0.8.4,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+indent-width = 2
+target-version = "py313"
