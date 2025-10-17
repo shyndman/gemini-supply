@@ -31,6 +31,12 @@ from rich.table import Table
 
 from gemini_supply.computers import Computer, EnvState
 from gemini_supply.display import display_image_kitty
+from gemini_supply.grocery.types import (
+  ItemAddedResult,
+  ItemAddedResultModel,
+  ItemNotFoundResult,
+  ItemNotFoundResultModel,
+)
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
 PREDEFINED_COMPUTER_USE_FUNCTIONS = [
@@ -66,14 +72,34 @@ class MultiplyResult(TypedDict):
   result: float
 
 
-# Built-in Computer Use tools will return "EnvState".
-# Custom provided functions will return typed dictionaries.
-FunctionResponseT = EnvState | MultiplyResult
+# Built-in Computer Use tools return EnvState.
+# Custom provided functions return typed dictionaries.
+FunctionResponseT = EnvState | MultiplyResult | ItemAddedResult | ItemNotFoundResult
 
 
 def multiply_numbers(x: float, y: float) -> MultiplyResult:
   """Multiplies two numbers."""
   return {"result": x * y}
+
+
+def report_item_added(
+  item_name: str, price_text: str, price_cents: int, url: str, quantity: int = 1
+) -> ItemAddedResult:
+  """Report success adding an item to the cart."""
+  model = ItemAddedResultModel(
+    item_name=item_name,
+    price_text=price_text,
+    price_cents=price_cents,
+    url=url,
+    quantity=quantity,
+  )
+  return model.to_typed()
+
+
+def report_item_not_found(item_name: str, explanation: str) -> ItemNotFoundResult:
+  """Report that an item could not be located on metro.ca."""
+  model = ItemNotFoundResultModel(item_name=item_name, explanation=explanation)
+  return model.to_typed()
 
 
 class BrowserAgent:
@@ -109,8 +135,9 @@ class BrowserAgent:
 
     # Add your own custom functions here.
     custom_functions: list[types.FunctionDeclaration] = [
-      # For example:
-      types.FunctionDeclaration.from_callable(client=self._client, callable=multiply_numbers)  # type: ignore[arg-type]
+      types.FunctionDeclaration.from_callable(client=self._client, callable=multiply_numbers),  # type: ignore[arg-type]
+      types.FunctionDeclaration.from_callable(client=self._client, callable=report_item_added),  # type: ignore[arg-type]
+      types.FunctionDeclaration.from_callable(client=self._client, callable=report_item_not_found),  # type: ignore[arg-type]
     ]
 
     self._generate_content_config = GenerateContentConfig(
@@ -212,6 +239,32 @@ class BrowserAgent:
       # Handle custom function declarations here
       case name if name == multiply_numbers.__name__:
         return multiply_numbers(x=action.args["x"], y=action.args["y"])
+
+      case name if name == report_item_added.__name__:
+        result = report_item_added(
+          item_name=action.args["item_name"],
+          price_text=action.args["price_text"],
+          price_cents=action.args["price_cents"],
+          url=action.args["url"],
+          quantity=action.args.get("quantity", 1),
+        )
+        # Stash latest custom tool call for orchestrator visibility
+        self.last_custom_tool_call = {
+          "name": report_item_added.__name__,
+          "payload": result,
+        }
+        return result
+
+      case name if name == report_item_not_found.__name__:
+        result = report_item_not_found(
+          item_name=action.args["item_name"],
+          explanation=action.args["explanation"],
+        )
+        self.last_custom_tool_call = {
+          "name": report_item_not_found.__name__,
+          "payload": result,
+        }
+        return result
 
       case _:
         raise ValueError(f"Unsupported function: {action.name}")
@@ -370,8 +423,8 @@ class BrowserAgent:
         )
       # Handle custom function responses (TypedDicts)
       else:
-        custom_result = cast(dict[str, float], fc_result)
-        function_responses.append(FunctionResponse(name=function_call.name, response=custom_result))
+        # fc_result is one of our custom TypedDicts
+        function_responses.append(FunctionResponse(name=function_call.name, response=fc_result))
 
     self._contents.append(
       Content(
@@ -431,6 +484,14 @@ class BrowserAgent:
     status: Literal["COMPLETE", "CONTINUE"] = "CONTINUE"
     while status == "CONTINUE":
       status = await self.run_one_iteration()
+
+  # --- Orchestrator visibility (non-API) ---
+
+  class _CustomToolCall(TypedDict):
+    name: str
+    payload: ItemAddedResult | ItemNotFoundResult | MultiplyResult
+
+  last_custom_tool_call: _CustomToolCall | None = None
 
   def denormalize_x(self, x: int | float) -> int:
     """Denormalizes x coordinate from 1000-based system to actual screen width."""

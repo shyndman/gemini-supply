@@ -13,20 +13,22 @@
 # limitations under the License.
 import argparse
 import asyncio
+from pathlib import Path
 
 from gemini_supply.agent import BrowserAgent
 from gemini_supply.computers import PlaywrightComputer
+from gemini_supply.grocery_main import run_shopping
 
 PLAYWRIGHT_SCREEN_SIZE = (1440, 900)
 
 
 async def main() -> int:
   parser = argparse.ArgumentParser(description="Run the browser agent with a query.")
+  parser.add_argument("--query", type=str, help="General query for the browser agent.")
   parser.add_argument(
-    "--query",
+    "--list",
     type=str,
-    required=True,
-    help="The query for the browser agent to execute.",
+    help="Path to a shopping list YAML file for grocery mode.",
   )
 
   parser.add_argument(
@@ -54,6 +56,18 @@ async def main() -> int:
     help="Set which main model to use.",
   )
   args = parser.parse_args()
+
+  # Grocery mode: run orchestrator if --list is provided.
+  if args.list:
+    return await run_shopping(
+      list_path=Path(args.list).expanduser(),
+      model_name=args.model,
+      highlight_mouse=args.highlight_mouse,
+      screen_size=PLAYWRIGHT_SCREEN_SIZE,
+    )
+
+  if not args.query:
+    parser.error("--query is required when not using --list")
 
   async with PlaywrightComputer(
     screen_size=PLAYWRIGHT_SCREEN_SIZE,

@@ -13,9 +13,12 @@
 # limitations under the License.
 from .computer import Computer, EnvState
 from .playwright_computer import PlaywrightComputer
+from .authenticated_metro_browser import AuthenticatedMetroShopperBrowser, AuthExpiredError
 
 __all__ = [
   "Computer",
   "EnvState",
   "PlaywrightComputer",
+  "AuthenticatedMetroShopperBrowser",
+  "AuthExpiredError",
 ]
