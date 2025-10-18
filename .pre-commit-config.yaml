@@ -38,3 +38,12 @@ repos:
         args: [--hidden-dir=.ai, '--files=CLAUDE.md,AGENTS.md,.claude']
       - id: update-gitignore-for-symlinks
         args: [--hidden-dir=.ai, '--files=CLAUDE.md,AGENTS.md,.claude']
+
+  - repo: local
+    hooks:
+      - id: pyright
+        name: pyright
+        entry: uv run pyright
+        language: system
+        pass_filenames: false
+        types: [python]
