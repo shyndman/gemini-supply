@@ -94,6 +94,8 @@ class AuthSetup(Command):
   @override
   async def run(self) -> None:
     path = self.storage_state.expanduser()
+    # Ensure the parent directory exists so storage_state() can write
+    path.parent.mkdir(parents=True, exist_ok=True)
     # Determine user data dir to use
     udir: Path | None = self.user_data_dir.expanduser() if self.user_data_dir else None
 

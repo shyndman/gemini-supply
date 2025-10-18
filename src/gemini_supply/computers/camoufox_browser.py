@@ -135,12 +135,11 @@ class CamoufoxMetroBrowser(PlaywrightComputer):
     exc_val: BaseException | None,
     exc_tb: TracebackType | None,
   ) -> None:
-    # Persist updated storage state if possible for ephemeral contexts.
+    # Persist updated storage state if possible (both ephemeral and persistent contexts).
     try:
-      if self._user_data_dir is None:
-        c = self._context
-        assert c is not None
-        await c.storage_state(path=self._storage_state_path)
+      c = self._context
+      assert c is not None
+      await c.storage_state(path=self._storage_state_path)
     except Exception:  # noqa: BLE001 - best effort
       pass
     await super().__aexit__(exc_type, exc_val, exc_tb)
