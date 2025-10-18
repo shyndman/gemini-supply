@@ -1,0 +1,10 @@
+items:
+  - id: "1"
+    name: "2% milk"
+    status: needs_action
+  - id: "2"
+    name: "bananas"
+    status: needs_action
+  - id: "3"
+    name: "whole wheat bread"
+    status: needs_action

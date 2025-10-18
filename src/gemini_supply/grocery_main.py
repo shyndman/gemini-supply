@@ -3,13 +3,14 @@ from __future__ import annotations
 import time
 from pathlib import Path
 from enum import StrEnum
+from datetime import timedelta
 
 import termcolor
 
 from gemini_supply.agent import BrowserAgent
 from gemini_supply.computers import (
   AuthExpiredError,
-  AuthenticatedMetroShopperBrowser,
+  CamoufoxMetroBrowser,
 )
 from gemini_supply.grocery.shopping_list import ShoppingListProvider, YAMLShoppingListProvider
 from gemini_supply.grocery.types import (
@@ -51,20 +52,29 @@ async def _shop_single_item(
   storage_state_path: Path,
   model_name: str,
   highlight_mouse: bool,
-  time_budget_s: int,
+  time_budget: timedelta,
   max_turns: int,
+  camoufox_exec: str | None,
+  user_data_dir: str | None,
 ) -> None:
   termcolor.cprint(f"🛒 Shopping for: {item['name']}", color="cyan")
   prompt = _build_task_prompt(item["name"])
   start = time.monotonic()
+  budget_seconds = time_budget.total_seconds()
   turns = 0
 
-  async with AuthenticatedMetroShopperBrowser(
+  # Always use Camoufox in shopping sessions.
+  browser_cm = CamoufoxMetroBrowser(
     screen_size=screen_size,
     storage_state_path=str(storage_state_path),
     initial_url="https://www.metro.ca",
     highlight_mouse=highlight_mouse,
-  ) as computer:
+    enforce_restrictions=True,
+    executable_path=camoufox_exec,
+    user_data_dir=user_data_dir,
+  )
+
+  async with browser_cm as computer:
     agent = BrowserAgent(browser_computer=computer, query=prompt, model_name=model_name)
 
     status: LoopStatus = LoopStatus.CONTINUE
@@ -75,8 +85,8 @@ async def _shop_single_item(
         termcolor.cprint("Max turns exceeded; marking failed.", color="yellow")
         return
 
-      if time.monotonic() - start > time_budget_s:
-        provider.mark_failed(item["id"], f"time_budget_exceeded: {time_budget_s}s")
+      if time.monotonic() - start > budget_seconds:
+        provider.mark_failed(item["id"], f"time_budget_exceeded: {time_budget}")
         termcolor.cprint("Time budget exceeded; marking failed.", color="yellow")
         return
 
@@ -111,8 +121,10 @@ async def run_shopping(
   highlight_mouse: bool,
   screen_size: tuple[int, int] = (1440, 900),
   storage_state_path: Path | None = None,
-  time_budget_s: int = 300,
+  time_budget: timedelta = timedelta(minutes=5),
   max_turns: int = 40,
+  camoufox_exec: str | None = None,
+  user_data_dir: Path | None = None,
 ) -> int:
   provider: ShoppingListProvider = YAMLShoppingListProvider(path=list_path)
   storage_path = storage_state_path or Path("~/.config/gemini-supply/metro_auth.json").expanduser()
@@ -136,8 +148,10 @@ async def run_shopping(
         storage_state_path=storage_path,
         model_name=model_name,
         highlight_mouse=highlight_mouse,
-        time_budget_s=time_budget_s,
+        time_budget=time_budget,
         max_turns=max_turns,
+        camoufox_exec=camoufox_exec,
+        user_data_dir=str(user_data_dir.expanduser()) if user_data_dir else None,
       )
     except Exception as e:  # noqa: BLE001
       failed.append(f"{item['name']}: {e}")

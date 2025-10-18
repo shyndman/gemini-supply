@@ -14,6 +14,7 @@
 from .computer import Computer, EnvState
 from .playwright_computer import PlaywrightComputer
 from .authenticated_metro_browser import AuthenticatedMetroShopperBrowser, AuthExpiredError
+from .camoufox_browser import CamoufoxMetroBrowser
 
 __all__ = [
   "Computer",
@@ -21,4 +22,5 @@ __all__ = [
   "PlaywrightComputer",
   "AuthenticatedMetroShopperBrowser",
   "AuthExpiredError",
+  "CamoufoxMetroBrowser",
 ]

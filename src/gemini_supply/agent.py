@@ -423,8 +423,10 @@ class BrowserAgent:
         )
       # Handle custom function responses (TypedDicts)
       else:
-        # fc_result is one of our custom TypedDicts
-        function_responses.append(FunctionResponse(name=function_call.name, response=fc_result))
+        # fc_result is one of our custom TypedDicts; cast to a plain mapping for SDK type
+        function_responses.append(
+          FunctionResponse(name=function_call.name, response=cast(dict[str, object], fc_result))
+        )
 
     self._contents.append(
       Content(

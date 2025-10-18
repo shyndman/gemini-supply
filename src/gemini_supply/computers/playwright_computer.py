@@ -85,6 +85,11 @@ class PlaywrightComputer(Computer):
     self._screen_size = screen_size
     self._search_engine_url = search_engine_url
     self._highlight_mouse = highlight_mouse
+    # Runtime-managed Playwright objects (initialized in __aenter__)
+    self._playwright: playwright.async_api.Playwright | None = None
+    self._browser: playwright.async_api.Browser | None = None
+    self._context: playwright.async_api.BrowserContext | None = None
+    self._page: playwright.async_api.Page | None = None
 
   async def _handle_new_page(self, new_page: playwright.async_api.Page) -> None:
     """The Computer Use model only supports a single tab at the moment.
@@ -94,12 +99,16 @@ class PlaywrightComputer(Computer):
     """
     new_url = new_page.url
     await new_page.close()
-    await self._page.goto(new_url)
+    page = self._page
+    assert page is not None
+    await page.goto(new_url)
 
   async def __aenter__(self) -> "PlaywrightComputer":
     print("Creating session...")
     self._playwright = await async_playwright().start()
-    self._browser = await self._playwright.chromium.launch(
+    assert self._playwright is not None
+    p = self._playwright
+    self._browser = await p.chromium.launch(
       args=[
         "--disable-extensions",
         "--disable-file-system",
@@ -112,16 +121,21 @@ class PlaywrightComputer(Computer):
       ],
       headless=bool(os.environ.get("PLAYWRIGHT_HEADLESS", False)),
     )
+    assert self._browser is not None
     self._context = await self._browser.new_context(
       viewport={
         "width": self._screen_size[0],
         "height": self._screen_size[1],
       }
     )
-    self._page = await self._context.new_page()
-    await self._page.goto(self._initial_url)
+    context = self._context
+    assert context is not None
+    self._page = await context.new_page()
+    page = self._page
+    assert page is not None
+    await page.goto(self._initial_url)
 
-    self._context.on("page", self._handle_new_page)
+    context.on("page", self._handle_new_page)
 
     termcolor.cprint(
       "Started local playwright.",
@@ -137,32 +151,48 @@ class PlaywrightComputer(Computer):
     exc_tb: TracebackType | None,
   ) -> None:
     """Cleanup resources when exiting context manager."""
-    if self._context:
-      await self._context.close()
-    try:
-      await self._browser.close()
-    except Exception as e:
-      # Browser was already shut down because of SIGINT or such.
-      if "Browser.close: Connection closed while reading from the driver" in str(e):
+    if self._context is not None:
+      try:
+        await self._context.close()
+      except Exception:
         pass
-      else:
-        raise
-
-    await self._playwright.stop()
+      finally:
+        self._context = None
+    if self._browser is not None:
+      try:
+        await self._browser.close()
+      except Exception as e:
+        if "Browser.close: Connection closed while reading from the driver" in str(e):
+          pass
+        else:
+          raise
+      finally:
+        self._browser = None
+    if self._playwright is not None:
+      try:
+        await self._playwright.stop()
+      except Exception:
+        pass
+      finally:
+        self._playwright = None
 
   async def open_web_browser(self) -> EnvState:
     return await self.current_state()
 
   async def click_at(self, x: int, y: int) -> EnvState:
     await self.highlight_mouse(x, y)
-    await self._page.mouse.click(x, y)
-    await self._page.wait_for_load_state()
+    page = self._page
+    assert page is not None
+    await page.mouse.click(x, y)
+    await page.wait_for_load_state()
     return await self.current_state()
 
   async def hover_at(self, x: int, y: int) -> EnvState:
     await self.highlight_mouse(x, y)
-    await self._page.mouse.move(x, y)
-    await self._page.wait_for_load_state()
+    page = self._page
+    assert page is not None
+    await page.mouse.move(x, y)
+    await page.wait_for_load_state()
     return await self.current_state()
 
   async def type_text_at(
@@ -174,8 +204,10 @@ class PlaywrightComputer(Computer):
     clear_before_typing: bool = True,
   ) -> EnvState:
     await self.highlight_mouse(x, y)
-    await self._page.mouse.click(x, y)
-    await self._page.wait_for_load_state()
+    page = self._page
+    assert page is not None
+    await page.mouse.click(x, y)
+    await page.wait_for_load_state()
 
     if clear_before_typing:
       if sys.platform == "darwin":
@@ -184,12 +216,12 @@ class PlaywrightComputer(Computer):
         await self.key_combination(["Control", "A"])
       await self.key_combination(["Delete"])
 
-    await self._page.keyboard.type(text)
-    await self._page.wait_for_load_state()
+    await page.keyboard.type(text)
+    await page.wait_for_load_state()
 
     if press_enter:
       await self.key_combination(["Enter"])
-    await self._page.wait_for_load_state()
+    await page.wait_for_load_state()
     return await self.current_state()
 
   async def _horizontal_document_scroll(self, direction: Literal["left", "right"]) -> EnvState:
@@ -201,8 +233,10 @@ class PlaywrightComputer(Computer):
       sign = ""
     scroll_argument = f"{sign}{horizontal_scroll_amount}"
     # Scroll using JS.
-    await self._page.evaluate(f"window.scrollBy({scroll_argument}, 0); ")
-    await self._page.wait_for_load_state()
+    page = self._page
+    assert page is not None
+    await page.evaluate(f"window.scrollBy({scroll_argument}, 0); ")
+    await page.wait_for_load_state()
     return await self.current_state()
 
   async def scroll_document(self, direction: Literal["up", "down", "left", "right"]) -> EnvState:
@@ -224,8 +258,10 @@ class PlaywrightComputer(Computer):
   ) -> EnvState:
     await self.highlight_mouse(x, y)
 
-    await self._page.mouse.move(x, y)
-    await self._page.wait_for_load_state()
+    page = self._page
+    assert page is not None
+    await page.mouse.move(x, y)
+    await page.wait_for_load_state()
 
     dx = 0
     dy = 0
@@ -240,8 +276,8 @@ class PlaywrightComputer(Computer):
     else:
       raise ValueError("Unsupported direction: ", direction)
 
-    await self._page.mouse.wheel(dx, dy)
-    await self._page.wait_for_load_state()
+    await page.mouse.wheel(dx, dy)
+    await page.wait_for_load_state()
     return await self.current_state()
 
   async def wait_5_seconds(self) -> EnvState:
@@ -249,13 +285,17 @@ class PlaywrightComputer(Computer):
     return await self.current_state()
 
   async def go_back(self) -> EnvState:
-    await self._page.go_back()
-    await self._page.wait_for_load_state()
+    page = self._page
+    assert page is not None
+    await page.go_back()
+    await page.wait_for_load_state()
     return await self.current_state()
 
   async def go_forward(self) -> EnvState:
-    await self._page.go_forward()
-    await self._page.wait_for_load_state()
+    page = self._page
+    assert page is not None
+    await page.go_forward()
+    await page.wait_for_load_state()
     return await self.current_state()
 
   async def search(self) -> EnvState:
@@ -265,47 +305,57 @@ class PlaywrightComputer(Computer):
     normalized_url = url
     if not normalized_url.startswith(("http://", "https://")):
       normalized_url = "https://" + normalized_url
-    await self._page.goto(normalized_url)
-    await self._page.wait_for_load_state()
+    page = self._page
+    assert page is not None
+    await page.goto(normalized_url)
+    await page.wait_for_load_state()
     return await self.current_state()
 
   async def key_combination(self, keys: list[str]) -> EnvState:
     # Normalize all keys to the Playwright compatible version.
     keys = [PLAYWRIGHT_KEY_MAP.get(k.lower(), k) for k in keys]
 
+    page = self._page
+    assert page is not None
     for key in keys[:-1]:
-      await self._page.keyboard.down(key)
+      await page.keyboard.down(key)
 
-    await self._page.keyboard.press(keys[-1])
+    await page.keyboard.press(keys[-1])
 
     for key in reversed(keys[:-1]):
-      await self._page.keyboard.up(key)
+      await page.keyboard.up(key)
 
     return await self.current_state()
 
   async def drag_and_drop(self, x: int, y: int, destination_x: int, destination_y: int) -> EnvState:
     await self.highlight_mouse(x, y)
-    await self._page.mouse.move(x, y)
-    await self._page.wait_for_load_state()
-    await self._page.mouse.down()
-    await self._page.wait_for_load_state()
+    page = self._page
+    assert page is not None
+    await page.mouse.move(x, y)
+    await page.wait_for_load_state()
+    await page.mouse.down()
+    await page.wait_for_load_state()
 
     await self.highlight_mouse(destination_x, destination_y)
-    await self._page.mouse.move(destination_x, destination_y)
-    await self._page.wait_for_load_state()
-    await self._page.mouse.up()
+    await page.mouse.move(destination_x, destination_y)
+    await page.wait_for_load_state()
+    await page.mouse.up()
     return await self.current_state()
 
   async def current_state(self) -> EnvState:
-    await self._page.wait_for_load_state()
+    page = self._page
+    assert page is not None
+    await page.wait_for_load_state()
     # Even if Playwright reports the page as loaded, it may not be so.
     # Add a manual sleep to make sure the page has finished rendering.
     await asyncio.sleep(0.5)
-    screenshot_bytes = await self._page.screenshot(type="png", full_page=False)
-    return EnvState(screenshot=screenshot_bytes, url=self._page.url)
+    screenshot_bytes = await page.screenshot(type="png", full_page=False)
+    return EnvState(screenshot=screenshot_bytes, url=page.url)
 
   def screen_size(self) -> tuple[int, int]:
-    viewport_size = self._page.viewport_size
+    page = self._page
+    assert page is not None
+    viewport_size = page.viewport_size
     # If available, try to take the local playwright viewport size.
     if viewport_size:
       return viewport_size["width"], viewport_size["height"]
@@ -315,7 +365,9 @@ class PlaywrightComputer(Computer):
   async def highlight_mouse(self, x: int, y: int) -> None:
     if not self._highlight_mouse:
       return
-    await self._page.evaluate(
+    page = self._page
+    assert page is not None
+    await page.evaluate(
       f"""
         () => {{
             const element_id = "playwright-feedback-circle";

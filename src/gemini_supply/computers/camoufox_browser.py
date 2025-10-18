@@ -9,19 +9,21 @@ import playwright.async_api
 import termcolor
 from playwright.async_api import async_playwright
 
-from .playwright_computer import PlaywrightComputer
 from .computer import EnvState
+from .playwright_computer import PlaywrightComputer
 
 
 class AuthExpiredError(Exception):
   pass
 
 
-class AuthenticatedMetroShopperBrowser(PlaywrightComputer):
-  """Playwright browser tailored for metro.ca with auth and restrictions.
+class CamoufoxMetroBrowser(PlaywrightComputer):
+  """Playwright Firefox browser tailored for metro.ca with auth and restrictions.
 
-  - Loads/saves storage state for persistent authentication
-  - Enforces domain allowlist and URL blocklist
+  Uses a Camoufox executable (a hardened Firefox build) to reduce automation detection.
+  - Loads/saves storage state for persistent authentication when not launching persistent
+  - Optionally launches a persistent context bound to a user data dir
+  - Enforces domain allowlist and URL blocklist during shopping sessions
   - Injects a status banner and hooks SPA route changes
   - Performs DOM-based authentication checks
   """
@@ -34,8 +36,7 @@ class AuthenticatedMetroShopperBrowser(PlaywrightComputer):
     initial_url: str = "https://www.metro.ca",
     highlight_mouse: bool = False,
     enforce_restrictions: bool = True,
-    channel: str | None = None,
-    cdp_url: str | None = None,
+    executable_path: str | None = None,
     user_data_dir: str | None = None,
   ) -> None:
     super().__init__(
@@ -46,8 +47,7 @@ class AuthenticatedMetroShopperBrowser(PlaywrightComputer):
     )
     self._storage_state_path = storage_state_path
     self._enforce_restrictions = enforce_restrictions
-    self._channel = channel
-    self._cdp_url = cdp_url
+    self._executable_path = executable_path
     self._user_data_dir = user_data_dir
     self._allow_domains: set[str] = {
       "www.metro.ca",
@@ -73,38 +73,25 @@ class AuthenticatedMetroShopperBrowser(PlaywrightComputer):
       "/password-reset",
     )
 
-  async def __aenter__(self) -> "AuthenticatedMetroShopperBrowser":
-    termcolor.cprint("Creating metro browser session...", color="cyan")
+  async def __aenter__(self) -> "CamoufoxMetroBrowser":
+    termcolor.cprint("Creating Camoufox metro browser session...", color="cyan")
     self._playwright = await async_playwright().start()
     assert self._playwright is not None
     p = self._playwright
-    if self._cdp_url:
-      # Attach to an existing user-launched Chrome for best compatibility with anti-bot checks.
-      self._browser = await p.chromium.connect_over_cdp(self._cdp_url)
-      if self._browser and self._browser.contexts:
-        self._context = self._browser.contexts[0]
-      else:
-        assert self._browser is not None
-        self._context = await self._browser.new_context(
-          viewport={"width": self._screen_size[0], "height": self._screen_size[1]}
-        )
-    elif self._user_data_dir:
-      # Launch persistent context against a provided user data dir (cloned Chrome profile).
-      self._context = await p.chromium.launch_persistent_context(
+
+    if self._user_data_dir is not None:
+      # Launch a persistent Firefox context using Camoufox binary
+      self._context = await p.firefox.launch_persistent_context(
         user_data_dir=self._user_data_dir,
-        channel=self._channel,
+        executable_path=self._executable_path,
         headless=bool(os.environ.get("PLAYWRIGHT_HEADLESS", False)),
         viewport={"width": self._screen_size[0], "height": self._screen_size[1]},
       )
       self._browser = self._context.browser
     else:
-      self._browser = await p.chromium.launch(
-        channel=self._channel,
-        args=[
-          # Keep flags minimal to reduce fingerprint differences.
-          "--disable-dev-shm-usage",
-          "--disable-background-networking",
-        ],
+      # Standard ephemeral context; we will load/save storage state
+      self._browser = await p.firefox.launch(
+        executable_path=self._executable_path,
         headless=bool(os.environ.get("PLAYWRIGHT_HEADLESS", False)),
       )
       storage_state = self._storage_state_path if os.path.exists(self._storage_state_path) else None
@@ -122,6 +109,7 @@ class AuthenticatedMetroShopperBrowser(PlaywrightComputer):
       )
       if storage_state is not None:
         context_kwargs["storage_state"] = storage_state
+      assert self._browser is not None
       self._context = await self._browser.new_context(**context_kwargs)  # type: ignore[arg-type]
 
     # Inject status banner and history hooks on every document load.
@@ -138,7 +126,7 @@ class AuthenticatedMetroShopperBrowser(PlaywrightComputer):
     await self._page.goto(self._initial_url)
     c.on("page", self._handle_new_page)
 
-    termcolor.cprint("Metro browser ready.", color="green")
+    termcolor.cprint("Camoufox metro browser ready.", color="green")
     return self
 
   async def __aexit__(
@@ -147,11 +135,12 @@ class AuthenticatedMetroShopperBrowser(PlaywrightComputer):
     exc_val: BaseException | None,
     exc_tb: TracebackType | None,
   ) -> None:
-    # Persist updated storage state if possible.
+    # Persist updated storage state if possible for ephemeral contexts.
     try:
-      c = self._context
-      assert c is not None
-      await c.storage_state(path=self._storage_state_path)
+      if self._user_data_dir is None:
+        c = self._context
+        assert c is not None
+        await c.storage_state(path=self._storage_state_path)
     except Exception:  # noqa: BLE001 - best effort
       pass
     await super().__aexit__(exc_type, exc_val, exc_tb)

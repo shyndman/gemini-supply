@@ -34,7 +34,7 @@ class YAMLShoppingListProvider:
   def get_uncompleted_items(self) -> list[ShoppingListItem]:
     data = self._read()
     items: list[ShoppingListItem] = []
-    for raw in data.get("items", []):
+    for raw in data["items"]:
       status = str(raw.get("status", ItemStatus.NEEDS_ACTION.value))
       if status == ItemStatus.NEEDS_ACTION.value:
         items.append(
@@ -48,7 +48,7 @@ class YAMLShoppingListProvider:
 
   def mark_completed(self, item_id: str, result: ItemAddedResult) -> None:
     data = self._read()
-    for raw in data.get("items", []):
+    for raw in data["items"]:
       if str(raw.get("id", raw.get("name", ""))) == item_id:
         raw["status"] = ItemStatus.COMPLETED.value
         raw["price_text"] = result["price_text"]
@@ -60,10 +60,15 @@ class YAMLShoppingListProvider:
 
   def mark_not_found(self, item_id: str, result: ItemNotFoundResult) -> None:
     data = self._read()
-    for raw in data.get("items", []):
+    for raw in data["items"]:
       if str(raw.get("id", raw.get("name", ""))) == item_id:
         # Add a #404 tag and explanation
-        tags = list(raw.get("tags", []))
+        tags_val = raw.get("tags", [])
+        tags: list[str]
+        if isinstance(tags_val, list):
+          tags = [str(x) for x in tags_val]
+        else:
+          tags = []
         if "#404" not in tags:
           tags.append("#404")
         raw["tags"] = tags
@@ -73,9 +78,14 @@ class YAMLShoppingListProvider:
 
   def mark_failed(self, item_id: str, error: str) -> None:
     data = self._read()
-    for raw in data.get("items", []):
+    for raw in data["items"]:
       if str(raw.get("id", raw.get("name", ""))) == item_id:
-        tags = list(raw.get("tags", []))
+        tags_val = raw.get("tags", [])
+        tags: list[str]
+        if isinstance(tags_val, list):
+          tags = [str(x) for x in tags_val]
+        else:
+          tags = []
         if "#failed" not in tags:
           tags.append("#failed")
         raw["tags"] = tags

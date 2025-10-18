@@ -11,7 +11,7 @@ This document describes the design and implementation plan for enhancing gemini-
 ## Use Case
 
 1. User adds items to shopping list over time
-2. User runs the agent with a shopping list path: `uv run gemini-supply --list ~/.config/gemini-supply/shopping_list.yaml`
+2. User runs the agent with a shopping list path: `uv run gemini-supply shop --list ~/.config/gemini-supply/shopping_list.yaml`
 3. Agent processes ALL uncompleted items sequentially (one agent instance per item)
 4. For each item:
    - Agent adds item to cart
@@ -173,12 +173,12 @@ See separate documentation for integrations:
 
 ### 2. Trigger Mechanism
 
-**Manual Invocation:**
+**Manual Invocation (Subcommand):**
 ```bash
-uv run gemini-supply --list ~/.config/gemini-supply/shopping_list.yaml
+uv run gemini-supply shop --list ~/.config/gemini-supply/shopping_list.yaml
 ```
 
-Where `--list` points to a YAML shopping list file. This invocation:
+Where `--list` points to a YAML shopping list file. This subcommand:
 - Queries shopping list provider for ALL uncompleted items
 - Processes each item sequentially (one agent instance per item)
 - Generates summary report after all items processed
@@ -189,7 +189,10 @@ Where `--list` points to a YAML shopping list file. This invocation:
 **Initial Setup (Manual):**
 - Run a one-time headful authentication flow to sign in to metro.ca
 - Save Playwright storage state to `~/.config/gemini-supply/metro_auth.json`
-- A small authentication utility/flow will perform this; CLI details TBD in README
+- Command:
+```bash
+uv run gemini-supply auth-setup
+```
 
 **Automated Usage:**
 - When creating the browser context, load the saved storage state
@@ -405,6 +408,7 @@ Delivered via `provider.send_summary()`.
 - Internal time budget per item: default 5 minutes
 - Max turns per item: default 40
 - If either is exceeded, mark as failed and move to next item
+- CLI uses a timedelta for time budget (e.g., `--time-budget 5m`, `--time-budget 300s`, `--time-budget 1h`)
 
 ### 10. Configuration File Locations
 
@@ -444,7 +448,8 @@ src/gemini_supply/
 │   └── config.py           # Configuration management
 ├── computers/
 │   └── authenticated_metro_browser.py  # AuthenticatedMetroShopperBrowser: Playwright subclass with auth + restrictions
-├── grocery_main.py          # CLI entrypoint for grocery agent
+├── grocery_main.py          # Orchestrator for grocery agent
+├── main.py                  # Clypi-based CLI (subcommands: shop, auth-setup)
 └── agent.py                 # (modifications to existing)
 ```
 
