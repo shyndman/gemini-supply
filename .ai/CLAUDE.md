@@ -4,9 +4,8 @@ Guidance for Claude Code (claude.ai/code) when working in this repo.
 
 ## Overview (Happy Path)
 
-Gemini‑powered grocery agent that adds items from a YAML shopping list to a metro.ca cart. Runtime is Camoufox (hardened Firefox via Playwright). The CLI uses Clypi subcommands.
+Gemini‑powered grocery agent that adds items from a shopping list to a metro.ca cart. The CLI uses Clypi subcommands.
 
-- Browser: Camoufox only (auto‑detected via `python -m camoufox path`)
 - Subcommands: `auth-setup`, `shop`
 - Screenshots render inline in Kitty‑compatible terminals
 
@@ -38,12 +37,6 @@ uv run gemini-supply shop --shopping-list ~/.config/gemini-supply/shopping_list.
   --postal-code "M5V 1J1"
 ```
 
-Shopping runs headless by default. For headed shopping (window visible), set:
-```bash
-export PLAYWRIGHT_HEADLESS=0
-uv run gemini-supply shop --shopping-list ~/.config/gemini-supply/shopping_list.yaml --postal-code "M5V 1J1"
-```
-
 ## Dev
 
 ```bash
@@ -59,19 +52,12 @@ uv run pytest -q
 - If you create a mapping, it must be a `TypedDict`. Never use `Any`.
 - Do not use dynamic attribute access like `getattr`, `hasattr`, or similar reflection. Prefer explicit attributes with clear `None` checks and narrow them before use.
 
-## Architecture
+## Notes
 
-- `main.py`: Clypi CLI (`auth-setup`, `shop`)
-- `grocery_main.py`: Orchestrator (per‑item loop, time/turn caps, terminal tool handling)
-- `agent.py`: Gemini loop (function calls → computer actions, keeps last 3 screenshot turns)
-- `computers/camoufox_browser.py`: Camoufox via Playwright Firefox (allowlist/blocklist, banner, DOM auth check)
-- `computers/playwright_computer.py`: Common actions (click, type, scroll, key combos, screenshots)
-- `display.py`: Kitty graphics screenshot rendering
-- `grocery/types.py`: TypedDict + Pydantic models for tool I/O and domain types
-- `grocery/shopping_list.py`: `ShoppingListProvider` + YAML implementation
-
-Key details:
-- Single‑tab only; new tabs are redirected into the current page
+- Concurrency supported via `--concurrency` or config `concurrency`; YAML provider forces concurrency=1
+- Normalized coordinates (1000×1000) denormalized per viewport
+- Custom tools return TypedDicts, registered via `FunctionDeclaration.from_callable()`
+- Terminal output is serialized across agents (reasoning + inline screenshots) — no disk logging
 - Normalized coordinates (1000×1000) denormalized per viewport
 - Custom tools return TypedDicts, registered via `FunctionDeclaration.from_callable()`
   
@@ -79,5 +65,9 @@ Key details:
 ## Environment
 
 - `GEMINI_API_KEY`: Gemini API key (required)
-- `GEMINI_SUPPLY_USER_DATA_DIR`: Override profile directory (Linux default: `~/.config/gemini-supply/camoufox-profile`)
-- `PLAYWRIGHT_HEADLESS`: Run headless (optional)
+- `GEMINI_SUPPLY_USER_DATA_DIR`: Override profile directory
+- Config file (optional): `~/.config/gemini-supply/config.yaml` supports:
+  - `shopping_list.provider: home_assistant`
+  - `home_assistant.url`, `home_assistant.token`
+  - `postal_code`
+  - `concurrency`
