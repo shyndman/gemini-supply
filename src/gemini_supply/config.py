@@ -20,6 +20,7 @@ class AppConfig(TypedDict, total=False):
   shopping_list: _ShoppingListCfg
   home_assistant: _HACfg
   postal_code: str
+  concurrency: int
 
 
 def load_config(path: Path | None) -> AppConfig | None:
@@ -54,6 +55,12 @@ def load_config(path: Path | None) -> AppConfig | None:
     pc = data.get("postal_code", "")
     if isinstance(pc, str) and pc.strip():
       cfg["postal_code"] = pc.strip()
+    conc = data.get("concurrency")
+    try:
+      if isinstance(conc, int) and conc >= 1:
+        cfg["concurrency"] = int(conc)
+    except Exception:
+      pass
     return cfg
   except Exception:
     return None

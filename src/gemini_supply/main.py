@@ -19,7 +19,7 @@ import clypi.parsers as cp
 from clypi import Command, arg
 from typing_extensions import override
 
-from gemini_supply.computers import CamoufoxMetroBrowser
+from gemini_supply.computers import CamoufoxHost
 from gemini_supply.grocery_main import run_shopping
 from gemini_supply.profile import resolve_profile_dir, resolve_camoufox_exec
 
@@ -39,6 +39,10 @@ class Shop(Command):
   )
   max_turns: int = arg(40, help="Max agent turns per item")
   postal_code: str | None = arg(None, help="Postal code to use; may also be set in config")
+  concurrency: int = arg(
+    0,
+    help="Number of items to process in parallel (tabs). 0 = use config or default 1",
+  )
   no_retry: bool = arg(
     False,
     help="Skip items already tagged (#not_found, #out_of_stock, #failed, #dupe)",
@@ -60,6 +64,7 @@ class Shop(Command):
       postal_code=self.postal_code,
       no_retry=self.no_retry,
       config_path=self.config.expanduser() if self.config else None,
+      concurrency=self.concurrency,
     )
 
 
@@ -74,18 +79,27 @@ class AuthSetup(Command):
     camou_exec = resolve_camoufox_exec()
     print(f"Using profile: {profile_dir}")
 
-    browser_cm = CamoufoxMetroBrowser(
+    async with CamoufoxHost(
       screen_size=PLAYWRIGHT_SCREEN_SIZE,
       user_data_dir=profile_dir,
       initial_url="https://www.metro.ca",
       highlight_mouse=self.highlight_mouse,
       enforce_restrictions=False,
       executable_path=camou_exec,
-    )
-
-    async with browser_cm:
-      print("A browser window has opened. Please log in to metro.ca, then press Enter to finish...")
-      await asyncio.to_thread(input)
+      headless=False,
+    ) as host:
+      # Acquire a tab so the window opens, then wait for user
+      tab = await host.new_tab()
+      try:
+        print(
+          "A browser window has opened. Please log in to metro.ca, then press Enter to finish..."
+        )
+        await asyncio.to_thread(input)
+      finally:
+        try:
+          await tab.close()
+        except Exception:
+          pass
     print("Authentication session complete. Credentials persisted in the profile.")
 
 

@@ -1,0 +1,198 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import pytest
+from pathlib import Path
+
+from gemini_supply.computers import EnvState, ScreenSize, CamoufoxHost
+# Tests cover the consolidated browser host/tab implementation.
+
+
+@pytest.fixture(autouse=True)
+def enable_headless_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+  """Automatically enable headless mode for all Playwright tests."""
+  monkeypatch.setenv("PLAYWRIGHT_HEADLESS", "1")
+
+
+@pytest.mark.asyncio
+async def test_tab_context_manager(tmp_path: Path) -> None:
+  """Tab can be created from host and used as a context manager."""
+  async with CamoufoxHost(
+    screen_size=(1440, 900),
+    initial_url="https://www.google.com",
+    enforce_restrictions=False,
+    user_data_dir=tmp_path,
+  ) as host:
+    tab = await host.new_tab()
+    async with tab:
+      size = tab.screen_size()
+      assert isinstance(size, ScreenSize)
+      assert size.width == 1440
+      assert size.height == 900
+
+
+@pytest.mark.asyncio
+async def test_tab_screen_size(tmp_path: Path) -> None:
+  async with CamoufoxHost(
+    screen_size=(1920, 1080), enforce_restrictions=False, user_data_dir=tmp_path
+  ) as host:
+    tab = await host.new_tab()
+    async with tab:
+      size = tab.screen_size()
+      assert size.width == 1920
+      assert size.height == 1080
+
+
+@pytest.mark.asyncio
+async def test_tab_open_web_browser(tmp_path: Path) -> None:
+  async with CamoufoxHost(
+    screen_size=(1440, 900),
+    initial_url="https://www.google.com",
+    enforce_restrictions=False,
+    user_data_dir=tmp_path,
+  ) as host:
+    tab = await host.new_tab()
+    async with tab:
+      state = await tab.open_web_browser()
+      assert isinstance(state, EnvState)
+      assert isinstance(state.screenshot, bytes)
+      assert len(state.screenshot) > 0
+      assert "google.com" in state.url.lower()
+
+
+@pytest.mark.asyncio
+async def test_tab_navigate(tmp_path: Path) -> None:
+  async with CamoufoxHost(
+    screen_size=(1440, 900),
+    initial_url="https://www.google.com",
+    enforce_restrictions=False,
+    user_data_dir=tmp_path,
+  ) as host:
+    tab = await host.new_tab()
+    async with tab:
+      state = await tab.navigate("https://www.example.com")
+      assert isinstance(state, EnvState)
+      assert "example.com" in state.url.lower()
+      assert isinstance(state.screenshot, bytes)
+      assert len(state.screenshot) > 0
+
+
+@pytest.mark.asyncio
+async def test_tab_navigate_without_protocol(tmp_path: Path) -> None:
+  async with CamoufoxHost(
+    screen_size=(1440, 900),
+    initial_url="https://www.google.com",
+    enforce_restrictions=False,
+    user_data_dir=tmp_path,
+  ) as host:
+    tab = await host.new_tab()
+    async with tab:
+      state = await tab.navigate("www.example.com")
+      assert isinstance(state, EnvState)
+      assert "example.com" in state.url.lower()
+
+
+@pytest.mark.asyncio
+async def test_tab_current_state(tmp_path: Path) -> None:
+  async with CamoufoxHost(
+    screen_size=(1440, 900),
+    initial_url="https://www.google.com",
+    enforce_restrictions=False,
+    user_data_dir=tmp_path,
+  ) as host:
+    tab = await host.new_tab()
+    async with tab:
+      state = await tab.current_state()
+      assert isinstance(state, EnvState)
+      assert isinstance(state.screenshot, bytes)
+      assert len(state.screenshot) > 0
+      assert isinstance(state.url, str)
+      assert len(state.url) > 0
+
+
+@pytest.mark.asyncio
+async def test_tab_search(tmp_path: Path) -> None:
+  async with CamoufoxHost(
+    screen_size=(1440, 900),
+    initial_url="https://www.example.com",
+    search_engine_url="https://www.google.com",
+    enforce_restrictions=False,
+    user_data_dir=tmp_path,
+  ) as host:
+    tab = await host.new_tab()
+    async with tab:
+      await tab.navigate("https://www.example.com")
+      state = await tab.search()
+      assert isinstance(state, EnvState)
+      assert "google.com" in state.url.lower()
+
+
+@pytest.mark.asyncio
+async def test_tab_key_combination(tmp_path: Path) -> None:
+  async with CamoufoxHost(
+    screen_size=(1440, 900),
+    initial_url="https://www.google.com",
+    enforce_restrictions=False,
+    user_data_dir=tmp_path,
+  ) as host:
+    tab = await host.new_tab()
+    async with tab:
+      state = await tab.key_combination(["enter"])
+      assert isinstance(state, EnvState)
+
+
+@pytest.mark.asyncio
+async def test_tab_scroll_document(tmp_path: Path) -> None:
+  async with CamoufoxHost(
+    screen_size=(1440, 900),
+    initial_url="https://www.google.com",
+    enforce_restrictions=False,
+    user_data_dir=tmp_path,
+  ) as host:
+    tab = await host.new_tab()
+    async with tab:
+      for direction in ["down", "up"]:
+        state = await tab.scroll_document(direction)  # type: ignore[arg-type]
+        assert isinstance(state, EnvState)
+        assert isinstance(state.screenshot, bytes)
+
+
+@pytest.mark.asyncio
+async def test_tab_click_at(tmp_path: Path) -> None:
+  async with CamoufoxHost(
+    screen_size=(1440, 900),
+    initial_url="https://www.google.com",
+    enforce_restrictions=False,
+    user_data_dir=tmp_path,
+  ) as host:
+    tab = await host.new_tab()
+    async with tab:
+      state = await tab.click_at(720, 450)
+      assert isinstance(state, EnvState)
+      assert isinstance(state.screenshot, bytes)
+
+
+@pytest.mark.asyncio
+async def test_tab_hover_at(tmp_path: Path) -> None:
+  async with CamoufoxHost(
+    screen_size=(1440, 900),
+    initial_url="https://www.google.com",
+    enforce_restrictions=False,
+    user_data_dir=tmp_path,
+  ) as host:
+    tab = await host.new_tab()
+    async with tab:
+      state = await tab.hover_at(720, 450)
+      assert isinstance(state, EnvState)
+      assert isinstance(state.screenshot, bytes)

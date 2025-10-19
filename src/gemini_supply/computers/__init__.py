@@ -11,16 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from .camoufox_browser import CamoufoxMetroBrowser
+from .browser_host import CamoufoxHost, CamoufoxTab
 from .computer import Computer, EnvState, ScreenSize
 from .errors import AuthExpiredError
-from .playwright_computer import PlaywrightComputer
 
 __all__ = [
   "Computer",
   "EnvState",
   "ScreenSize",
-  "PlaywrightComputer",
   "AuthExpiredError",
-  "CamoufoxMetroBrowser",
+  "CamoufoxHost",
+  "CamoufoxTab",
 ]

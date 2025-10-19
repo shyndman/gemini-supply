@@ -109,13 +109,14 @@ class BrowserAgent:
     query: str,
     model_name: str,
     verbose: bool = True,
+    client: genai.Client | None = None,
   ):
     self._browser_computer = browser_computer
     self._query = query
     self._model_name = model_name
     self._verbose = verbose
     self.final_reasoning: str | None = None
-    self._client: genai.Client = genai.Client(
+    self._client: genai.Client = client or genai.Client(
       api_key=os.environ.get("GEMINI_API_KEY"),
     )
     self._contents: list[Content] = [
@@ -283,7 +284,9 @@ class BrowserAgent:
       try:
         assert self._client is not None
         assert self._generate_content_config is not None
-        response = self._client.models.generate_content(
+        # Run the synchronous SDK call in a worker thread so we don't block the event loop
+        response = await asyncio.to_thread(
+          self._client.models.generate_content,
           model=self._model_name,
           contents=self._contents,
           config=self._generate_content_config,

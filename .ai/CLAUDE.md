@@ -38,9 +38,9 @@ uv run gemini-supply shop --shopping-list ~/.config/gemini-supply/shopping_list.
   --postal-code "M5V 1J1"
 ```
 
-Headless shopping (auth should remain headful):
+Shopping runs headless by default. For headed shopping (window visible), set:
 ```bash
-export PLAYWRIGHT_HEADLESS=1
+export PLAYWRIGHT_HEADLESS=0
 uv run gemini-supply shop --shopping-list ~/.config/gemini-supply/shopping_list.yaml --postal-code "M5V 1J1"
 ```
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import os
 from pathlib import Path
 from enum import StrEnum
 from typing import Literal, TypedDict
@@ -9,7 +10,11 @@ from datetime import timedelta
 import termcolor
 
 from gemini_supply.agent import BrowserAgent
-from gemini_supply.computers import AuthExpiredError, CamoufoxMetroBrowser, ScreenSize
+from gemini_supply.computers import (
+  AuthExpiredError,
+  ScreenSize,
+  CamoufoxHost,
+)
 from gemini_supply.grocery.shopping_list import (
   ShoppingListProvider,
   YAMLShoppingListProvider,
@@ -37,13 +42,12 @@ def _build_task_prompt(item_name: str, postal_code: str) -> str:
     "  3. From the SRP, choose the best-matching result. CLICK THE PRODUCT IMAGE or name to open the product's page.\n"
     "  4. On the product page, press 'Add to Cart'. If a postal code form appears, enter the postal code exactly as: \n"
     f"     {postal_code}\n"
-    "  5. If a delivery time sidebar opens, click the link to choose/pick the time later (defer selection).\n"
-    "     After deferring, press 'Add to Cart' again on the product page.\n"
-    "  6. Verify success: The 'Add to Cart' button becomes a quantity control (with +/−).\n"
+    '     If the "Delivery or Pickup?" form appears, click the "I haven\'t made my choice yet" link at the bottom to defer selection, then press \'Add to Cart\' again on the product page.\n'
+    "  5. Verify success: The 'Add to Cart' button becomes a quantity control (with +/−).\n"
     "     If it does not change, try again or explain why it failed.\n"
-    "  7. Call report_item_added(item_name, price_text, price_cents, url, quantity) when successful.\n"
+    "  6. Call report_item_added(item_name, price_text, price_cents, url, quantity) when successful.\n"
     "     The 'url' MUST be the product page URL (NOT the search results page).\n"
-    "  8. If product cannot be located after reasonable attempts, call report_item_not_found(item_name, explanation).\n\n"
+    "  7. If product cannot be located after reasonable attempts, call report_item_not_found(item_name, explanation).\n\n"
     "Constraints:\n"
     "  - Stay on metro.ca and allowed resources only.\n"
     "  - Do NOT navigate to checkout, payment, or account pages.\n"
@@ -74,76 +78,72 @@ class ItemFailedOutcome(TypedDict):
 Outcome = ItemAddedOutcome | ItemNotFoundOutcome | ItemFailedOutcome
 
 
-async def _shop_single_item(
+# Removed legacy single-page path; all runs use host+tab now.
+
+
+async def _shop_single_item_in_tab(
+  *,
+  host: CamoufoxHost,
   item: ShoppingListItem,
   provider: ShoppingListProvider,
-  screen_size: ScreenSize,
   model_name: str,
   highlight_mouse: bool,
   time_budget: timedelta,
   max_turns: int,
-  camoufox_exec: Path,
-  user_data_dir: Path,
   postal_code: str,
 ) -> Outcome:
-  termcolor.cprint(f"🛒 Shopping for: {item['name']}", color="cyan")
+  termcolor.cprint(f"🛒 (tab) Shopping for: {item['name']}", color="cyan")
   prompt = _build_task_prompt(item["name"], postal_code)
   start = time.monotonic()
   budget_seconds = time_budget.total_seconds()
   turns = 0
 
-  # Always use Camoufox in shopping sessions.
-  browser_cm = CamoufoxMetroBrowser(
-    screen_size=screen_size,
-    user_data_dir=user_data_dir,
-    initial_url="https://www.metro.ca",
-    highlight_mouse=highlight_mouse,
-    enforce_restrictions=True,
-    executable_path=camoufox_exec,
-  )
+  tab = await host.new_tab()
+  agent: BrowserAgent | None = None
+  try:
+    agent = BrowserAgent(browser_computer=tab, query=prompt, model_name=model_name)
+    status: LoopStatus = LoopStatus.CONTINUE
+    while status == LoopStatus.CONTINUE:
+      turns += 1
+      if turns > max_turns:
+        provider.mark_failed(item["id"], f"max_turns_exceeded: {max_turns}")
+        termcolor.cprint("Max turns exceeded; marking failed.", color="yellow")
+        return {"type": "failed", "error": f"max_turns_exceeded: {max_turns}"}
 
-  async with browser_cm as computer:
-    agent = BrowserAgent(browser_computer=computer, query=prompt, model_name=model_name)
+      if time.monotonic() - start > budget_seconds:
+        provider.mark_failed(item["id"], f"time_budget_exceeded: {time_budget}")
+        termcolor.cprint("Time budget exceeded; marking failed.", color="yellow")
+        return {"type": "failed", "error": f"time_budget_exceeded: {time_budget}"}
+
+      try:
+        res = await agent.run_one_iteration()
+        status = LoopStatus(res)
+      except AuthExpiredError:
+        provider.mark_failed(item["id"], "auth_expired")
+        termcolor.cprint("Authentication expired; stopping session.", color="red")
+        return {"type": "failed", "error": "auth_expired"}
+
+      if agent.last_custom_tool_call is not None:
+        name = agent.last_custom_tool_call["name"]
+        payload = agent.last_custom_tool_call["payload"]
+        if name == "report_item_added":
+          provider.mark_completed(item["id"], payload)  # type: ignore[arg-type]
+          return {"type": "added", "result": payload}  # type: ignore[dict-item]
+        elif name == "report_item_not_found":
+          provider.mark_not_found(item["id"], payload)  # type: ignore[arg-type]
+          return {"type": "not_found", "result": payload}  # type: ignore[dict-item]
+        else:
+          provider.mark_failed(item["id"], f"unexpected_custom_tool: {name}")
+          return {"type": "failed", "error": f"unexpected_custom_tool: {name}"}
+
+    provider.mark_failed(item["id"], "completed_without_reporting")
+    return {"type": "failed", "error": "completed_without_reporting"}
+  finally:
     try:
-      status: LoopStatus = LoopStatus.CONTINUE
-      while status == LoopStatus.CONTINUE:
-        turns += 1
-        if turns > max_turns:
-          provider.mark_failed(item["id"], f"max_turns_exceeded: {max_turns}")
-          termcolor.cprint("Max turns exceeded; marking failed.", color="yellow")
-          return {"type": "failed", "error": f"max_turns_exceeded: {max_turns}"}
-
-        if time.monotonic() - start > budget_seconds:
-          provider.mark_failed(item["id"], f"time_budget_exceeded: {time_budget}")
-          termcolor.cprint("Time budget exceeded; marking failed.", color="yellow")
-          return {"type": "failed", "error": f"time_budget_exceeded: {time_budget}"}
-
-        try:
-          res = await agent.run_one_iteration()
-          status = LoopStatus(res)
-        except AuthExpiredError:
-          provider.mark_failed(item["id"], "auth_expired")
-          termcolor.cprint("Authentication expired; stopping session.", color="red")
-          return {"type": "failed", "error": "auth_expired"}
-
-        # Terminal on first custom tool call (implementation detail)
-        if agent.last_custom_tool_call is not None:
-          name = agent.last_custom_tool_call["name"]
-          payload = agent.last_custom_tool_call["payload"]
-          if name == "report_item_added":
-            provider.mark_completed(item["id"], payload)  # type: ignore[arg-type]
-            return {"type": "added", "result": payload}  # type: ignore[dict-item]
-          elif name == "report_item_not_found":
-            provider.mark_not_found(item["id"], payload)  # type: ignore[arg-type]
-            return {"type": "not_found", "result": payload}  # type: ignore[dict-item]
-          else:
-            provider.mark_failed(item["id"], f"unexpected_custom_tool: {name}")
-            return {"type": "failed", "error": f"unexpected_custom_tool: {name}"}
-
-      # If loop completed without custom tool call, treat as failure with reasoning if available
-      provider.mark_failed(item["id"], "completed_without_reporting")
-      return {"type": "failed", "error": "completed_without_reporting"}
-    finally:
+      await tab.close()
+    except Exception:
+      pass
+    if agent is not None:
       agent.close()
 
 
@@ -158,6 +158,7 @@ async def run_shopping(
   postal_code: str | None,
   no_retry: bool = False,
   config_path: Path | None = None,
+  concurrency: int | None = None,
 ) -> int:
   # Choose provider from config (if present), else YAML file path
   cfg = load_config(config_path or DEFAULT_CONFIG_PATH)
@@ -202,37 +203,121 @@ async def run_shopping(
   failed: list[str] = []
   total_cents = 0
 
-  for item in items:
-    try:
-      outcome = await _shop_single_item(
-        item=item,
-        provider=provider,
-        screen_size=normalized_screen_size,
-        model_name=model_name,
-        highlight_mouse=highlight_mouse,
-        time_budget=time_budget,
-        max_turns=max_turns,
-        camoufox_exec=camoufox_exec,
-        user_data_dir=profile_dir,
-        postal_code=resolved_postal,
-      )
-      if outcome["type"] == "added":
-        res = outcome["result"]
-        added.append(res)
-        total_cents += res["price_cents"]
-      elif outcome["type"] == "not_found":
-        not_found.append(outcome["result"])
-      else:
-        failed.append(outcome["error"])
-    except Exception as e:  # noqa: BLE001
-      import traceback
-      import sys
+  # Resolve effective concurrency: CLI > config > default 1
+  eff_conc: int = 1
+  if concurrency is not None and concurrency > 0:
+    eff_conc = concurrency
+  elif cfg and isinstance(cfg.get("concurrency"), int) and int(cfg.get("concurrency")) >= 1:  # type: ignore[arg-type]
+    eff_conc = int(cfg.get("concurrency"))  # type: ignore[call-overload]
 
-      tb = traceback.format_exc()
-      termcolor.cprint("Exception while shopping item:", color="red")
-      print(tb, file=sys.stderr)
-      failed.append(f"{item['name']}: {e}")
-      provider.mark_failed(item["id"], f"exception: {e}\n{tb}")
+  # Guard YAML provider from concurrent writes; force sequential
+  if isinstance(provider, YAMLShoppingListProvider) and eff_conc > 1:
+    termcolor.cprint(
+      "YAML provider does not support parallel writes; forcing concurrency=1.",
+      color="yellow",
+    )
+    eff_conc = 1
+
+  # Disable inline screenshots for parallel runs to keep terminal readable
+  prev_img = os.environ.get("GEMINI_SUPPLY_IMG_ENABLE", "1")
+  if eff_conc > 1:
+    os.environ["GEMINI_SUPPLY_IMG_ENABLE"] = "0"
+
+  try:
+    # Always use a single host; run sequentially or in parallel tabs.
+    # Headless by default for shop; allow override via PLAYWRIGHT_HEADLESS=0
+    env_h = os.environ.get("PLAYWRIGHT_HEADLESS", "").strip().lower()
+    headless = False if env_h in ("0", "false", "no") else True
+    async with CamoufoxHost(
+      screen_size=normalized_screen_size,
+      user_data_dir=profile_dir,
+      initial_url="https://www.metro.ca",
+      highlight_mouse=highlight_mouse,
+      enforce_restrictions=True,
+      executable_path=camoufox_exec,
+      headless=headless,
+    ) as host:
+      import asyncio
+
+      if eff_conc <= 1:
+        for item in items:
+          try:
+            out = await _shop_single_item_in_tab(
+              host=host,
+              item=item,
+              provider=provider,
+              model_name=model_name,
+              highlight_mouse=highlight_mouse,
+              time_budget=time_budget,
+              max_turns=max_turns,
+              postal_code=resolved_postal,
+            )
+            if out["type"] == "added":
+              res = out["result"]
+              added.append(res)
+              total_cents += res["price_cents"]
+            elif out["type"] == "not_found":
+              not_found.append(out["result"])
+            else:
+              failed.append(out["error"])
+          except Exception as e:  # noqa: BLE001
+            import traceback
+            import sys
+
+            tb = traceback.format_exc()
+            termcolor.cprint("Exception while shopping item:", color="red")
+            print(tb, file=sys.stderr)
+            failed.append(f"{item['name']}: {e}")
+            provider.mark_failed(item["id"], f"exception: {e}\n{tb}")
+      else:
+        sem = asyncio.Semaphore(eff_conc)
+        results: list[tuple[ShoppingListItem, Outcome | Exception]] = []
+
+        async def run_one(it: ShoppingListItem) -> None:
+          async with sem:
+            try:
+              out = await _shop_single_item_in_tab(
+                host=host,
+                item=it,
+                provider=provider,
+                model_name=model_name,
+                highlight_mouse=highlight_mouse,
+                time_budget=time_budget,
+                max_turns=max_turns,
+                postal_code=resolved_postal,
+              )
+              results.append((it, out))
+            except Exception as e:  # noqa: BLE001
+              results.append((it, e))
+
+        tg: asyncio.TaskGroup
+        async with asyncio.TaskGroup() as tg:
+          for it in items:
+            tg.create_task(run_one(it))
+
+        for it, res in results:
+          if isinstance(res, Exception):
+            import traceback
+            import sys
+
+            tb = traceback.format_exc()
+            termcolor.cprint("Exception while shopping item:", color="red")
+            print(tb, file=sys.stderr)
+            failed.append(f"{it['name']}: {res}")
+            provider.mark_failed(it["id"], f"exception: {res}\n{tb}")
+          else:
+            outcome = res
+            if outcome["type"] == "added":
+              r = outcome["result"]
+              added.append(r)
+              total_cents += r["price_cents"]
+            elif outcome["type"] == "not_found":
+              not_found.append(outcome["result"])
+            else:
+              failed.append(outcome["error"])
+  finally:
+    if eff_conc > 1:
+      os.environ["GEMINI_SUPPLY_IMG_ENABLE"] = prev_img
 
   # Best-effort summary compilation from provider is not available here; assemble minimal
   summary: ShoppingSummary = {

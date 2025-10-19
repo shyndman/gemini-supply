@@ -12,7 +12,11 @@ home_assistant:
 # Retailer/location settings
 postal_code: "M5V 1J1"  # used for delivery prompt on metro.ca
 
+# Parallelism
+concurrency: 3  # number of items to process in parallel (tabs)
+
 # Notes:
 # - When provider is home_assistant, the CLI does not require --shopping-list.
 # - You can omit --postal-code if postal_code is set here.
+# - Set --concurrency 0 to use config or default 1.
 # - For YAML provider, omit this config and pass --shopping-list /path/to/list.yaml.
