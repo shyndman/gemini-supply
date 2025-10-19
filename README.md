@@ -27,7 +27,7 @@ Shop
 
 Process all uncompleted items from a YAML shopping list with the authenticated session.
 
-- `uv run gemini-supply shop --list ~/.config/gemini-supply/shopping_list.yaml --postal-code "M5V 1J1"`
+- `uv run gemini-supply shop --shopping-list ~/.config/gemini-supply/shopping_list.yaml --postal-code "M5V 1J1"`
 
 Flags you may find useful:
 - `--model` to choose a Gemini model (default `gemini-2.5-computer-use-preview-10-2025`)

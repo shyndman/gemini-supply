@@ -29,7 +29,7 @@ PLAYWRIGHT_SCREEN_SIZE = (1440, 900)
 class Shop(Command):
   """Shop all uncompleted items from a shopping list on metro.ca"""
 
-  list: Path = arg(help="Path to the shopping list YAML", parser=cp.Path(exists=True))
+  shopping_list: Path = arg(help="Path to the shopping list YAML", parser=cp.Path(exists=True))
   model: str = arg("gemini-2.5-computer-use-preview-10-2025", help="Model to use")
   highlight_mouse: bool = arg(False, help="Highlight mouse for debugging")
   time_budget: timedelta = arg(
@@ -42,7 +42,7 @@ class Shop(Command):
   async def run(self) -> None:
     # shop delegates profile/executable resolution to grocery_main
     await run_shopping(
-      list_path=self.list.expanduser(),
+      list_path=self.shopping_list.expanduser(),
       model_name=self.model,
       highlight_mouse=self.highlight_mouse,
       screen_size=PLAYWRIGHT_SCREEN_SIZE,

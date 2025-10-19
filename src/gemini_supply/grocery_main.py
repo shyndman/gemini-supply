@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 from enum import StrEnum
+from typing import Literal, TypedDict
 from datetime import timedelta
 
 import termcolor
@@ -50,6 +51,24 @@ class LoopStatus(StrEnum):
   CONTINUE = "CONTINUE"
 
 
+class ItemAddedOutcome(TypedDict):
+  type: Literal["added"]
+  result: ItemAddedResult
+
+
+class ItemNotFoundOutcome(TypedDict):
+  type: Literal["not_found"]
+  result: ItemNotFoundResult
+
+
+class ItemFailedOutcome(TypedDict):
+  type: Literal["failed"]
+  error: str
+
+
+Outcome = ItemAddedOutcome | ItemNotFoundOutcome | ItemFailedOutcome
+
+
 async def _shop_single_item(
   item: ShoppingListItem,
   provider: ShoppingListProvider,
@@ -61,7 +80,7 @@ async def _shop_single_item(
   camoufox_exec: Path,
   user_data_dir: Path,
   postal_code: str,
-) -> None:
+) -> Outcome:
   termcolor.cprint(f"🛒 Shopping for: {item['name']}", color="cyan")
   prompt = _build_task_prompt(item["name"], postal_code)
   start = time.monotonic()
@@ -87,12 +106,12 @@ async def _shop_single_item(
         if turns > max_turns:
           provider.mark_failed(item["id"], f"max_turns_exceeded: {max_turns}")
           termcolor.cprint("Max turns exceeded; marking failed.", color="yellow")
-          return
+          return {"type": "failed", "error": f"max_turns_exceeded: {max_turns}"}
 
         if time.monotonic() - start > budget_seconds:
           provider.mark_failed(item["id"], f"time_budget_exceeded: {time_budget}")
           termcolor.cprint("Time budget exceeded; marking failed.", color="yellow")
-          return
+          return {"type": "failed", "error": f"time_budget_exceeded: {time_budget}"}
 
         try:
           res = await agent.run_one_iteration()
@@ -100,7 +119,7 @@ async def _shop_single_item(
         except AuthExpiredError:
           provider.mark_failed(item["id"], "auth_expired")
           termcolor.cprint("Authentication expired; stopping session.", color="red")
-          return
+          return {"type": "failed", "error": "auth_expired"}
 
         # Terminal on first custom tool call (implementation detail)
         if agent.last_custom_tool_call is not None:
@@ -108,14 +127,17 @@ async def _shop_single_item(
           payload = agent.last_custom_tool_call["payload"]
           if name == "report_item_added":
             provider.mark_completed(item["id"], payload)  # type: ignore[arg-type]
+            return {"type": "added", "result": payload}  # type: ignore[dict-item]
           elif name == "report_item_not_found":
             provider.mark_not_found(item["id"], payload)  # type: ignore[arg-type]
+            return {"type": "not_found", "result": payload}  # type: ignore[dict-item]
           else:
             provider.mark_failed(item["id"], f"unexpected_custom_tool: {name}")
-          return
+            return {"type": "failed", "error": f"unexpected_custom_tool: {name}"}
 
       # If loop completed without custom tool call, treat as failure with reasoning if available
       provider.mark_failed(item["id"], "completed_without_reporting")
+      return {"type": "failed", "error": "completed_without_reporting"}
     finally:
       agent.close()
 
@@ -154,7 +176,7 @@ async def run_shopping(
 
   for item in items:
     try:
-      await _shop_single_item(
+      outcome = await _shop_single_item(
         item=item,
         provider=provider,
         screen_size=normalized_screen_size,
@@ -166,6 +188,14 @@ async def run_shopping(
         user_data_dir=profile_dir,
         postal_code=postal_code,
       )
+      if outcome["type"] == "added":
+        res = outcome["result"]
+        added.append(res)
+        total_cents += res["price_cents"]
+      elif outcome["type"] == "not_found":
+        not_found.append(outcome["result"])
+      else:
+        failed.append(outcome["error"])
     except Exception as e:  # noqa: BLE001
       import traceback
       import sys

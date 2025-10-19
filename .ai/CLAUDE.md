@@ -33,7 +33,7 @@ uv run gemini-supply auth-setup
 
 2) Shop all uncompleted items:
 ```bash
-uv run gemini-supply shop --list ~/.config/gemini-supply/shopping_list.yaml \
+uv run gemini-supply shop --shopping-list ~/.config/gemini-supply/shopping_list.yaml \
   --time-budget 5m --max-turns 40 --model gemini-2.5-computer-use-preview-10-2025 \
   --postal-code "M5V 1J1"
 ```
@@ -41,7 +41,7 @@ uv run gemini-supply shop --list ~/.config/gemini-supply/shopping_list.yaml \
 Headless shopping (auth should remain headful):
 ```bash
 export PLAYWRIGHT_HEADLESS=1
-uv run gemini-supply shop --list ~/.config/gemini-supply/shopping_list.yaml --postal-code "M5V 1J1"
+uv run gemini-supply shop --shopping-list ~/.config/gemini-supply/shopping_list.yaml --postal-code "M5V 1J1"
 ```
 
 ## Dev

@@ -11,7 +11,7 @@ This document describes the design and implementation plan for enhancing gemini-
 ## Use Case
 
 1. User adds items to shopping list over time
-2. User runs the agent with a shopping list path: `uv run gemini-supply shop --list ~/.config/gemini-supply/shopping_list.yaml`
+2. User runs the agent with a shopping list path: `uv run gemini-supply shop --shopping-list ~/.config/gemini-supply/shopping_list.yaml`
 3. Agent processes ALL uncompleted items sequentially (one agent instance per item)
 4. For each item:
    - Agent adds item to cart
@@ -175,10 +175,10 @@ See separate documentation for integrations:
 
 **Manual Invocation (Subcommand):**
 ```bash
-uv run gemini-supply shop --list ~/.config/gemini-supply/shopping_list.yaml
+uv run gemini-supply shop --shopping-list ~/.config/gemini-supply/shopping_list.yaml
 ```
 
-Where `--list` points to a YAML shopping list file. This subcommand:
+Where `--shopping-list` points to a YAML shopping list file. This subcommand:
 - Queries shopping list provider for ALL uncompleted items
 - Processes each item sequentially (one agent instance per item)
 - Generates summary report after all items processed
