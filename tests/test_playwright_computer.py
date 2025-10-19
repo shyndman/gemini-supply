@@ -14,7 +14,7 @@
 
 import pytest
 
-from gemini_supply.computers import EnvState, PlaywrightComputer
+from gemini_supply.computers import EnvState, PlaywrightComputer, ScreenSize
 
 
 @pytest.fixture(autouse=True)
@@ -29,16 +29,19 @@ async def test_playwright_computer_context_manager() -> None:
   async with PlaywrightComputer(
     screen_size=(1440, 900), initial_url="https://www.google.com"
   ) as computer:
-    assert computer.screen_size() == (1440, 900)
+    size = computer.screen_size()
+    assert isinstance(size, ScreenSize)
+    assert size.width == 1440
+    assert size.height == 900
 
 
 @pytest.mark.asyncio
 async def test_playwright_computer_screen_size() -> None:
   """Test that screen_size returns the configured dimensions."""
   async with PlaywrightComputer(screen_size=(1920, 1080)) as computer:
-    width, height = computer.screen_size()
-    assert width == 1920
-    assert height == 1080
+    size = computer.screen_size()
+    assert size.width == 1920
+    assert size.height == 1080
 
 
 @pytest.mark.asyncio

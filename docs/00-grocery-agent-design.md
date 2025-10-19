@@ -130,9 +130,9 @@ This document describes the design and implementation plan for enhancing gemini-
 │    - List of not found items (with explanations)           │
 │    - Total estimated cost                                   │
 │                                                              │
-│  Auth State:                                                │
-│    ~/.config/gemini-supply/metro_auth.json                  │
-│    (refreshed after full shopping session)                  │
+│  Profile (Persistent):                                      │
+│    ~/.config/gemini-supply/camoufox-profile                 │
+│    (cookies/tokens persist as you browse)                   │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -187,20 +187,19 @@ Where `--list` points to a YAML shopping list file. This subcommand:
 ### 3. Authentication Management
 
 **Initial Setup (Manual):**
-- Run a one-time headful authentication flow to sign in to metro.ca
-- Save Playwright storage state to `~/.config/gemini-supply/metro_auth.json`
+- Run a headful authentication flow to sign in to metro.ca using a persistent profile directory
+- Default profile (Linux): `~/.config/gemini-supply/camoufox-profile`
 - Command:
 ```bash
 uv run gemini-supply auth-setup
 ```
 
 **Automated Usage:**
-- When creating the browser context, load the saved storage state
-- Reuse cookies, local storage, and session storage across sessions
+- Browser always launches a persistent context bound to the profile directory
+- Cookies/local storage/session storage persist on disk and are reused automatically
 
 **Session Refresh:**
-- After each successful shopping session, save updated storage state
-- Extends session lifetime by refreshing tokens/cookies
+- Session refresh is automatic: the persistent profile is updated continuously as the browser runs
 
 **Expiry Handling:**
 - DOM-based authentication check (see below) determines if session is valid
@@ -233,8 +232,8 @@ uv run gemini-supply auth-setup
 - Log blocked hosts to help tune the allowlist over time
 
 **Metro Browser Class:**
-- A specialized Playwright subclass, `AuthenticatedMetroShopperBrowser`, will:
-  - Load/save Playwright storage state (authentication persistence)
+- A specialized Playwright subclass, `CamoufoxMetroBrowser`, will:
+  - Launch Firefox via Camoufox with a persistent user data dir (authentication persistence)
   - Enforce domain allowlist and URL blocklist
   - Inject a status banner on every document load and keep it updated across SPA route changes
   - Log blocked hosts for developer visibility
@@ -410,12 +409,12 @@ Delivered via `provider.send_summary()`.
 - If either is exceeded, mark as failed and move to next item
 - CLI uses a timedelta for time budget (e.g., `--time-budget 5m`, `--time-budget 300s`, `--time-budget 1h`)
 
-### 10. Configuration File Locations
+### 10. Configuration Locations
 
 **Directory Structure:**
 ```
 ~/.config/gemini-supply/
-├── metro_auth.json              # Saved browser authentication
+├── camoufox-profile/            # Persistent browser profile (cookies/tokens)
 └── config.yaml                  # Optional: future configuration
 ```
 
@@ -425,13 +424,13 @@ Delivered via `provider.send_summary()`.
 mkdir -p ~/.config/gemini-supply
 
 # Initial authentication
-uv run grocery-agent authenticate
+uv run gemini-supply auth-setup
 ```
 
 **Gitignore:**
 ```
 # Sensitive/local files
-metro_auth.json
+camoufox-profile/
 config.yaml
 ```
 
@@ -447,7 +446,7 @@ src/gemini_supply/
 │   ├── shopping_list.py     # ShoppingListProvider interface + YAML implementation
 │   └── config.py           # Configuration management
 ├── computers/
-│   └── authenticated_metro_browser.py  # AuthenticatedMetroShopperBrowser: Playwright subclass with auth + restrictions
+│   └── camoufox_browser.py  # CamoufoxMetroBrowser: Playwright subclass with auth + restrictions
 ├── grocery_main.py          # Orchestrator for grocery agent
 ├── main.py                  # Clypi-based CLI (subcommands: shop, auth-setup)
 └── agent.py                 # (modifications to existing)
@@ -464,9 +463,9 @@ src/gemini_supply/
 
 ### Phase 2: Authenticated Metro Browser
 
-**2.1 AuthenticatedMetroShopperBrowser Class**
+**2.1 CamoufoxMetroBrowser Class**
 - Extend `PlaywrightComputer`
-- Load saved authentication via Playwright storage state
+- Launch Firefox via Camoufox with persistent profile directory
 - Implement route blocking (allowlist + blocklist)
 - Inject status banner on document load; keep in sync on SPA route changes
 - Log blocked hosts for allowlist tuning
@@ -500,8 +499,8 @@ src/gemini_supply/
 - Signal completion when tool functions are called
 
 **3.3 Authentication Flow**
-- Separate one-time utility opens headful browser for manual login
-- Saves storage state to `~/.config/gemini-supply/metro_auth.json`
+- Separate utility opens headful browser for manual login
+- Uses a persistent profile directory; no JSON storage state is saved/loaded
 - Validation of successful auth
 
 **3.4 Summary Generation**

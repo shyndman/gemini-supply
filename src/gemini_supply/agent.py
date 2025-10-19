@@ -115,11 +115,8 @@ class BrowserAgent:
     self._model_name = model_name
     self._verbose = verbose
     self.final_reasoning: str | None = None
-    self._client = genai.Client(
+    self._client: genai.Client = genai.Client(
       api_key=os.environ.get("GEMINI_API_KEY"),
-      vertexai=os.environ.get("USE_VERTEXAI", "0").lower() in ["true", "1"],
-      project=os.environ.get("VERTEXAI_PROJECT"),
-      location=os.environ.get("VERTEXAI_LOCATION"),
     )
     self._contents: list[Content] = [
       Content(
@@ -133,28 +130,36 @@ class BrowserAgent:
     # Exclude any predefined functions here.
     excluded_predefined_functions: list[str] = []
 
-    # Add your own custom functions here.
-    custom_functions: list[types.FunctionDeclaration] = [
-      types.FunctionDeclaration.from_callable(client=self._client, callable=multiply_numbers),  # type: ignore[arg-type]
-      types.FunctionDeclaration.from_callable(client=self._client, callable=report_item_added),  # type: ignore[arg-type]
-      types.FunctionDeclaration.from_callable(client=self._client, callable=report_item_not_found),  # type: ignore[arg-type]
+    self._excluded_predefined_functions = excluded_predefined_functions
+    self._custom_function_callables = [
+      multiply_numbers,
+      report_item_added,
+      report_item_not_found,
     ]
+    self._generate_content_config: GenerateContentConfig | None = None
 
-    self._generate_content_config = GenerateContentConfig(
-      temperature=1,
-      top_p=0.95,
-      top_k=40,
-      max_output_tokens=8192,
-      tools=[
-        types.Tool(
-          computer_use=types.ComputerUse(
-            environment=types.Environment.ENVIRONMENT_BROWSER,
-            excluded_predefined_functions=excluded_predefined_functions,
+  def _ensure_client_and_config(self) -> None:
+    if self._generate_content_config is None:
+      # Build function declarations now that the client exists
+      custom_functions: list[types.FunctionDeclaration] = [
+        types.FunctionDeclaration.from_callable(client=self._client, callable=fn)  # type: ignore[arg-type]
+        for fn in self._custom_function_callables
+      ]
+      self._generate_content_config = GenerateContentConfig(
+        temperature=1,
+        top_p=0.95,
+        top_k=40,
+        max_output_tokens=8192,
+        tools=[
+          types.Tool(
+            computer_use=types.ComputerUse(
+              environment=types.Environment.ENVIRONMENT_BROWSER,
+              excluded_predefined_functions=self._excluded_predefined_functions,
+            ),
           ),
-        ),
-        types.Tool(function_declarations=custom_functions),
-      ],
-    )
+          types.Tool(function_declarations=custom_functions),
+        ],
+      )
 
   async def handle_action(self, action: types.FunctionCall) -> FunctionResponseT:
     """Handles the action and returns the environment state."""
@@ -272,8 +277,12 @@ class BrowserAgent:
   async def get_model_response(
     self, max_retries: int = 5, base_delay_s: int = 1
   ) -> types.GenerateContentResponse:
+    # Lazy init for client/config to avoid destructor issues when unused
+    self._ensure_client_and_config()
     for attempt in range(max_retries):
       try:
+        assert self._client is not None
+        assert self._generate_content_config is not None
         response = self._client.models.generate_content(
           model=self._model_name,
           contents=self._contents,
@@ -326,15 +335,9 @@ class BrowserAgent:
     # Generate a response from the model.
     if self._verbose:
       with console.status("Generating response from Gemini Computer Use..."):
-        try:
-          response = await self.get_model_response()
-        except Exception:
-          return "COMPLETE"
-    else:
-      try:
         response = await self.get_model_response()
-      except Exception:
-        return "COMPLETE"
+    else:
+      response = await self.get_model_response()
 
     if not response.candidates:
       print("Response has no candidates!")
@@ -404,7 +407,19 @@ class BrowserAgent:
       if isinstance(fc_result, EnvState):
         env_state = cast(EnvState, fc_result)
         # Display the screenshot in the terminal using Kitty graphics protocol
-        display_image_kitty(env_state.screenshot)
+        img_enabled = os.environ.get("GEMINI_SUPPLY_IMG_ENABLE", "1").strip().lower()
+        show_img = img_enabled not in ("0", "false", "no")
+        max_w_env = os.environ.get("GEMINI_SUPPLY_IMG_MAX_WIDTH", "").strip()
+        max_w: int | None = None
+        if max_w_env:
+          try:
+            mw = int(max_w_env)
+            if mw > 0:
+              max_w = mw
+          except Exception:
+            max_w = None
+        if show_img:
+          display_image_kitty(env_state.screenshot, max_width=max_w)
         function_responses.append(
           FunctionResponse(
             name=function_call.name,
@@ -487,6 +502,16 @@ class BrowserAgent:
     while status == "CONTINUE":
       status = await self.run_one_iteration()
 
+  def close(self) -> None:
+    """Close the underlying Gemini client if initialized."""
+    try:
+      self._client.close()
+    except Exception:
+      pass
+    finally:
+      # Keep the reference for type safety; the client is closed.
+      ...
+
   # --- Orchestrator visibility (non-API) ---
 
   class _CustomToolCall(TypedDict):
@@ -497,8 +522,10 @@ class BrowserAgent:
 
   def denormalize_x(self, x: int | float) -> int:
     """Denormalizes x coordinate from 1000-based system to actual screen width."""
-    return int(x / 1000 * self._browser_computer.screen_size()[0])
+    screen = self._browser_computer.screen_size()
+    return int(x / 1000 * screen.width)
 
   def denormalize_y(self, y: int | float) -> int:
     """Denormalizes y coordinate from 1000-based system to actual screen height."""
-    return int(y / 1000 * self._browser_computer.screen_size()[1])
+    screen = self._browser_computer.screen_size()
+    return int(y / 1000 * screen.height)

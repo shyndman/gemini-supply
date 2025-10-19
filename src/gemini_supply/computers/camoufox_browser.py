@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from types import TracebackType
-from typing import TypedDict
 from urllib.parse import urlparse
 
 import playwright.async_api
 import termcolor
 from playwright.async_api import async_playwright
 
-from .computer import EnvState
+from .computer import EnvState, ScreenSize
 from .playwright_computer import PlaywrightComputer
 
 
@@ -21,8 +21,7 @@ class CamoufoxMetroBrowser(PlaywrightComputer):
   """Playwright Firefox browser tailored for metro.ca with auth and restrictions.
 
   Uses a Camoufox executable (a hardened Firefox build) to reduce automation detection.
-  - Loads/saves storage state for persistent authentication when not launching persistent
-  - Optionally launches a persistent context bound to a user data dir
+  - Launches a persistent context bound to a user data dir (profile)
   - Enforces domain allowlist and URL blocklist during shopping sessions
   - Injects a status banner and hooks SPA route changes
   - Performs DOM-based authentication checks
@@ -31,13 +30,12 @@ class CamoufoxMetroBrowser(PlaywrightComputer):
   def __init__(
     self,
     *,
-    screen_size: tuple[int, int],
-    storage_state_path: str,
+    screen_size: ScreenSize | tuple[int, int],
+    user_data_dir: Path,
     initial_url: str = "https://www.metro.ca",
     highlight_mouse: bool = False,
     enforce_restrictions: bool = True,
-    executable_path: str | None = None,
-    user_data_dir: str | None = None,
+    executable_path: Path | None = None,
   ) -> None:
     super().__init__(
       screen_size=screen_size,
@@ -45,7 +43,6 @@ class CamoufoxMetroBrowser(PlaywrightComputer):
       search_engine_url="https://www.metro.ca/en/online-grocery/search",
       highlight_mouse=highlight_mouse,
     )
-    self._storage_state_path = storage_state_path
     self._enforce_restrictions = enforce_restrictions
     self._executable_path = executable_path
     self._user_data_dir = user_data_dir
@@ -79,38 +76,20 @@ class CamoufoxMetroBrowser(PlaywrightComputer):
     assert self._playwright is not None
     p = self._playwright
 
-    if self._user_data_dir is not None:
-      # Launch a persistent Firefox context using Camoufox binary
+    # Launch a persistent Firefox context using Camoufox binary and the provided profile
+    try:
       self._context = await p.firefox.launch_persistent_context(
-        user_data_dir=self._user_data_dir,
-        executable_path=self._executable_path,
+        user_data_dir=str(self._user_data_dir),
+        executable_path=str(self._executable_path) if self._executable_path else None,
         headless=bool(os.environ.get("PLAYWRIGHT_HEADLESS", False)),
-        viewport={"width": self._screen_size[0], "height": self._screen_size[1]},
+        viewport={"width": self._screen_size.width, "height": self._screen_size.height},
       )
       self._browser = self._context.browser
-    else:
-      # Standard ephemeral context; we will load/save storage state
-      self._browser = await p.firefox.launch(
-        executable_path=self._executable_path,
-        headless=bool(os.environ.get("PLAYWRIGHT_HEADLESS", False)),
-      )
-      storage_state = self._storage_state_path if os.path.exists(self._storage_state_path) else None
-
-      class _ViewportKw(TypedDict):
-        width: int
-        height: int
-
-      class _ContextKwargs(TypedDict, total=False):
-        viewport: _ViewportKw
-        storage_state: str
-
-      context_kwargs: _ContextKwargs = _ContextKwargs(
-        viewport=_ViewportKw(width=self._screen_size[0], height=self._screen_size[1])
-      )
-      if storage_state is not None:
-        context_kwargs["storage_state"] = storage_state
-      assert self._browser is not None
-      self._context = await self._browser.new_context(**context_kwargs)  # type: ignore[arg-type]
+    except Exception as e:  # noqa: BLE001
+      # Provide a clearer error when the profile is in use or Camoufox is missing
+      raise RuntimeError(
+        f"Failed to launch Camoufox persistent context with profile '{self._user_data_dir}': {e}"
+      ) from e
 
     # Inject status banner and history hooks on every document load.
     assert self._context is not None
@@ -122,7 +101,11 @@ class CamoufoxMetroBrowser(PlaywrightComputer):
     if self._enforce_restrictions:
       await c.route("**/*", self._route_interceptor)
 
-    self._page = await c.new_page()
+    # Prefer existing page for persistent context to avoid multiple windows
+    if self._user_data_dir is not None and c.pages:
+      self._page = c.pages[0]
+    else:
+      self._page = await c.new_page()
     await self._page.goto(self._initial_url)
     c.on("page", self._handle_new_page)
 
@@ -135,13 +118,6 @@ class CamoufoxMetroBrowser(PlaywrightComputer):
     exc_val: BaseException | None,
     exc_tb: TracebackType | None,
   ) -> None:
-    # Persist updated storage state if possible (both ephemeral and persistent contexts).
-    try:
-      c = self._context
-      assert c is not None
-      await c.storage_state(path=self._storage_state_path)
-    except Exception:  # noqa: BLE001 - best effort
-      pass
     await super().__aexit__(exc_type, exc_val, exc_tb)
 
   async def current_state(self) -> EnvState:

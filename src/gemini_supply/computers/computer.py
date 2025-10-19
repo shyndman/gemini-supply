@@ -12,8 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import abc
+from typing import Literal, NamedTuple
+
 import pydantic
-from typing import Literal
 
 
 class EnvState(pydantic.BaseModel):
@@ -22,11 +23,16 @@ class EnvState(pydantic.BaseModel):
   url: str
 
 
+class ScreenSize(NamedTuple):
+  width: int
+  height: int
+
+
 class Computer(abc.ABC):
   """Defines an interface for environments."""
 
   @abc.abstractmethod
-  def screen_size(self) -> tuple[int, int]:
+  def screen_size(self) -> ScreenSize:
     """Returns the screen size of the environment."""
 
   @abc.abstractmethod

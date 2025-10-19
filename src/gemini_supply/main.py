@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
-import subprocess
-import sys
 from datetime import timedelta
 from pathlib import Path
 
@@ -23,6 +21,7 @@ from typing_extensions import override
 
 from gemini_supply.computers import CamoufoxMetroBrowser
 from gemini_supply.grocery_main import run_shopping
+from gemini_supply.profile import resolve_profile_dir, resolve_camoufox_exec
 
 PLAYWRIGHT_SCREEN_SIZE = (1440, 900)
 
@@ -37,102 +36,46 @@ class Shop(Command):
     timedelta(minutes=5), help="Time budget per item", parser=cp.TimeDelta()
   )
   max_turns: int = arg(40, help="Max agent turns per item")
-  storage_state: Path | None = arg(None, help="Override storage state path")
-  camoufox_exec: Path | None = arg(None, help="Path to Camoufox executable (auto-detects)")
-  user_data_dir: Path | None = arg(None, help="User data dir for persistent profile (Camoufox)")
+  postal_code: str = arg(help="Postal code to use if delivery prompt appears (e.g., M5V 1J1)")
 
   @override
   async def run(self) -> None:
-    def _resolve_camoufox_exec(p: Path | None) -> str | None:
-      if p is not None:
-        return str(p.expanduser())
-      try:
-        # Query camoufox-provided path within the current Python environment
-        proc = subprocess.run(
-          [sys.executable, "-m", "camoufox", "path"],
-          check=True,
-          capture_output=True,
-          text=True,
-        )
-        resolved = proc.stdout.strip()
-        if not resolved:
-          return None
-        rp = Path(resolved).expanduser()
-        # python -m camoufox path returns the root directory; the binary
-        # lives directly under it with the same name. Normalize here.
-        if rp.is_dir():
-          rp = rp / rp.name
-        return str(rp)
-      except Exception:
-        return None
-
-    camou_exec: str | None = _resolve_camoufox_exec(self.camoufox_exec)
-
+    # shop delegates profile/executable resolution to grocery_main
     await run_shopping(
       list_path=self.list.expanduser(),
       model_name=self.model,
       highlight_mouse=self.highlight_mouse,
       screen_size=PLAYWRIGHT_SCREEN_SIZE,
-      storage_state_path=self.storage_state.expanduser() if self.storage_state else None,
       time_budget=self.time_budget,
       max_turns=self.max_turns,
-      camoufox_exec=camou_exec,
-      user_data_dir=self.user_data_dir.expanduser() if self.user_data_dir else None,
+      postal_code=self.postal_code,
     )
 
 
 class AuthSetup(Command):
-  """Open metro.ca to authenticate and save storage state"""
+  """Open metro.ca to authenticate using a persistent profile"""
 
-  storage_state: Path = arg(
-    Path("~/.config/gemini-supply/metro_auth.json"), help="Path to save storage state"
-  )
   highlight_mouse: bool = arg(False, help="Highlight mouse for debugging")
-  user_data_dir: Path | None = arg(None, help="Use this user data dir for a persistent context")
-  camoufox_exec: Path | None = arg(None, help="Path to Camoufox executable (auto-detects)")
 
   @override
   async def run(self) -> None:
-    path = self.storage_state.expanduser()
-    # Ensure the parent directory exists so storage_state() can write
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # Determine user data dir to use
-    udir: Path | None = self.user_data_dir.expanduser() if self.user_data_dir else None
-
-    def _resolve_camoufox_exec(p: Path | None) -> str | None:
-      if p is not None:
-        return str(p.expanduser())
-      try:
-        proc = subprocess.run(
-          [sys.executable, "-m", "camoufox", "path"],
-          check=True,
-          capture_output=True,
-          text=True,
-        )
-        resolved = proc.stdout.strip()
-        if not resolved:
-          return None
-        rp = Path(resolved).expanduser()
-        if rp.is_dir():
-          rp = rp / rp.name
-        return str(rp)
-      except Exception:
-        return None
+    profile_dir = resolve_profile_dir()
+    camou_exec = resolve_camoufox_exec()
+    print(f"Using profile: {profile_dir}")
 
     browser_cm = CamoufoxMetroBrowser(
       screen_size=PLAYWRIGHT_SCREEN_SIZE,
-      storage_state_path=str(path),
+      user_data_dir=profile_dir,
       initial_url="https://www.metro.ca",
       highlight_mouse=self.highlight_mouse,
       enforce_restrictions=False,
-      executable_path=_resolve_camoufox_exec(self.camoufox_exec),
-      user_data_dir=str(udir) if udir else None,
+      executable_path=camou_exec,
     )
 
     async with browser_cm:
       print("A browser window has opened. Please log in to metro.ca, then press Enter to finish...")
       await asyncio.to_thread(input)
-    print(f"Saved authentication state to: {path}")
+    print("Authentication session complete. Credentials persisted in the profile.")
 
 
 class Cli(Command):

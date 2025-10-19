@@ -14,7 +14,7 @@
 import pytest
 from typing import Literal
 
-from gemini_supply.computers import Computer, EnvState
+from gemini_supply.computers import Computer, EnvState, ScreenSize
 
 
 class MockComputer(Computer):
@@ -24,8 +24,8 @@ class MockComputer(Computer):
     self._screen_width = 1440
     self._screen_height = 900
 
-  def screen_size(self) -> tuple[int, int]:
-    return (self._screen_width, self._screen_height)
+  def screen_size(self) -> ScreenSize:
+    return ScreenSize(self._screen_width, self._screen_height)
 
   async def open_web_browser(self) -> EnvState:
     return EnvState(screenshot=b"mock_screenshot", url="https://example.com")

@@ -21,7 +21,7 @@ import playwright.async_api
 import termcolor
 from playwright.async_api import async_playwright
 
-from .computer import Computer, EnvState
+from .computer import Computer, EnvState, ScreenSize
 
 # Define a mapping from the user-friendly key names to Playwright's expected key names.
 # Playwright is generally good with case-insensitivity for these, but it's best to be canonical.
@@ -76,13 +76,16 @@ class PlaywrightComputer(Computer):
 
   def __init__(
     self,
-    screen_size: tuple[int, int],
+    screen_size: ScreenSize | tuple[int, int],
     initial_url: str = "https://www.google.com",
     search_engine_url: str = "https://www.google.com",
     highlight_mouse: bool = False,
   ):
     self._initial_url = initial_url
-    self._screen_size = screen_size
+    if isinstance(screen_size, ScreenSize):
+      self._screen_size = screen_size
+    else:
+      self._screen_size = ScreenSize(*screen_size)
     self._search_engine_url = search_engine_url
     self._highlight_mouse = highlight_mouse
     # Runtime-managed Playwright objects (initialized in __aenter__)
@@ -124,8 +127,8 @@ class PlaywrightComputer(Computer):
     assert self._browser is not None
     self._context = await self._browser.new_context(
       viewport={
-        "width": self._screen_size[0],
-        "height": self._screen_size[1],
+        "width": self._screen_size.width,
+        "height": self._screen_size.height,
       }
     )
     context = self._context
@@ -226,7 +229,7 @@ class PlaywrightComputer(Computer):
 
   async def _horizontal_document_scroll(self, direction: Literal["left", "right"]) -> EnvState:
     # Scroll by 50% of the viewport size.
-    horizontal_scroll_amount = self.screen_size()[0] // 2
+    horizontal_scroll_amount = self.screen_size().width // 2
     if direction == "left":
       sign = "-"
     else:
@@ -352,13 +355,13 @@ class PlaywrightComputer(Computer):
     screenshot_bytes = await page.screenshot(type="png", full_page=False)
     return EnvState(screenshot=screenshot_bytes, url=page.url)
 
-  def screen_size(self) -> tuple[int, int]:
+  def screen_size(self) -> ScreenSize:
     page = self._page
     assert page is not None
     viewport_size = page.viewport_size
     # If available, try to take the local playwright viewport size.
     if viewport_size:
-      return viewport_size["width"], viewport_size["height"]
+      return ScreenSize(viewport_size["width"], viewport_size["height"])
     # If unavailable, fall back to the original provided size.
     return self._screen_size
 

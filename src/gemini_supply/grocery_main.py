@@ -8,10 +8,7 @@ from datetime import timedelta
 import termcolor
 
 from gemini_supply.agent import BrowserAgent
-from gemini_supply.computers import (
-  AuthExpiredError,
-  CamoufoxMetroBrowser,
-)
+from gemini_supply.computers import AuthExpiredError, CamoufoxMetroBrowser, ScreenSize
 from gemini_supply.grocery.shopping_list import ShoppingListProvider, YAMLShoppingListProvider
 from gemini_supply.grocery.types import (
   ItemAddedResult,
@@ -19,9 +16,10 @@ from gemini_supply.grocery.types import (
   ShoppingListItem,
   ShoppingSummary,
 )
+from gemini_supply.profile import resolve_profile_dir, resolve_camoufox_exec
 
 
-def _build_task_prompt(item_name: str) -> str:
+def _build_task_prompt(item_name: str, postal_code: str) -> str:
   return (
     "Goal: Add ONE specific item to metro.ca cart\n"
     f"Item: {item_name}\n\n"
@@ -30,9 +28,16 @@ def _build_task_prompt(item_name: str) -> str:
     "  2. Prefer using navigate to open the search results page (SRP) directly: \n"
     "     https://www.metro.ca/en/online-grocery/search?filter={ENCODED_QUERY}\n"
     "     Otherwise, use the header search input present on all pages.\n"
-    "  3. Add the item to the cart.\n"
-    "  4. Call report_item_added(item_name, price_text, price_cents, url, quantity) when successful.\n"
-    "  5. If product cannot be located after reasonable attempts, call report_item_not_found(item_name, explanation).\n\n"
+    "  3. From the SRP, choose the best-matching result. CLICK THE PRODUCT IMAGE or name to open the product's page.\n"
+    "  4. On the product page, press 'Add to Cart'. If a postal code form appears, enter the postal code exactly as: \n"
+    f"     {postal_code}\n"
+    "  5. If a delivery time sidebar opens, click the link to choose/pick the time later (defer selection).\n"
+    "     After deferring, press 'Add to Cart' again on the product page.\n"
+    "  6. Verify success: The 'Add to Cart' button becomes a quantity control (with +/−).\n"
+    "     If it does not change, try again or explain why it failed.\n"
+    "  7. Call report_item_added(item_name, price_text, price_cents, url, quantity) when successful.\n"
+    "     The 'url' MUST be the product page URL (NOT the search results page).\n"
+    "  8. If product cannot be located after reasonable attempts, call report_item_not_found(item_name, explanation).\n\n"
     "Constraints:\n"
     "  - Stay on metro.ca and allowed resources only.\n"
     "  - Do NOT navigate to checkout, payment, or account pages.\n"
@@ -48,17 +53,17 @@ class LoopStatus(StrEnum):
 async def _shop_single_item(
   item: ShoppingListItem,
   provider: ShoppingListProvider,
-  screen_size: tuple[int, int],
-  storage_state_path: Path,
+  screen_size: ScreenSize,
   model_name: str,
   highlight_mouse: bool,
   time_budget: timedelta,
   max_turns: int,
-  camoufox_exec: str | None,
-  user_data_dir: str | None,
+  camoufox_exec: Path,
+  user_data_dir: Path,
+  postal_code: str,
 ) -> None:
   termcolor.cprint(f"🛒 Shopping for: {item['name']}", color="cyan")
-  prompt = _build_task_prompt(item["name"])
+  prompt = _build_task_prompt(item["name"], postal_code)
   start = time.monotonic()
   budget_seconds = time_budget.total_seconds()
   turns = 0
@@ -66,52 +71,53 @@ async def _shop_single_item(
   # Always use Camoufox in shopping sessions.
   browser_cm = CamoufoxMetroBrowser(
     screen_size=screen_size,
-    storage_state_path=str(storage_state_path),
+    user_data_dir=user_data_dir,
     initial_url="https://www.metro.ca",
     highlight_mouse=highlight_mouse,
     enforce_restrictions=True,
     executable_path=camoufox_exec,
-    user_data_dir=user_data_dir,
   )
 
   async with browser_cm as computer:
     agent = BrowserAgent(browser_computer=computer, query=prompt, model_name=model_name)
+    try:
+      status: LoopStatus = LoopStatus.CONTINUE
+      while status == LoopStatus.CONTINUE:
+        turns += 1
+        if turns > max_turns:
+          provider.mark_failed(item["id"], f"max_turns_exceeded: {max_turns}")
+          termcolor.cprint("Max turns exceeded; marking failed.", color="yellow")
+          return
 
-    status: LoopStatus = LoopStatus.CONTINUE
-    while status == LoopStatus.CONTINUE:
-      turns += 1
-      if turns > max_turns:
-        provider.mark_failed(item["id"], f"max_turns_exceeded: {max_turns}")
-        termcolor.cprint("Max turns exceeded; marking failed.", color="yellow")
-        return
+        if time.monotonic() - start > budget_seconds:
+          provider.mark_failed(item["id"], f"time_budget_exceeded: {time_budget}")
+          termcolor.cprint("Time budget exceeded; marking failed.", color="yellow")
+          return
 
-      if time.monotonic() - start > budget_seconds:
-        provider.mark_failed(item["id"], f"time_budget_exceeded: {time_budget}")
-        termcolor.cprint("Time budget exceeded; marking failed.", color="yellow")
-        return
+        try:
+          res = await agent.run_one_iteration()
+          status = LoopStatus(res)
+        except AuthExpiredError:
+          provider.mark_failed(item["id"], "auth_expired")
+          termcolor.cprint("Authentication expired; stopping session.", color="red")
+          return
 
-      try:
-        res = await agent.run_one_iteration()
-        status = LoopStatus(res)
-      except AuthExpiredError:
-        provider.mark_failed(item["id"], "auth_expired")
-        termcolor.cprint("Authentication expired; stopping session.", color="red")
-        return
+        # Terminal on first custom tool call (implementation detail)
+        if agent.last_custom_tool_call is not None:
+          name = agent.last_custom_tool_call["name"]
+          payload = agent.last_custom_tool_call["payload"]
+          if name == "report_item_added":
+            provider.mark_completed(item["id"], payload)  # type: ignore[arg-type]
+          elif name == "report_item_not_found":
+            provider.mark_not_found(item["id"], payload)  # type: ignore[arg-type]
+          else:
+            provider.mark_failed(item["id"], f"unexpected_custom_tool: {name}")
+          return
 
-      # Terminal on first custom tool call (implementation detail)
-      if agent.last_custom_tool_call is not None:
-        name = agent.last_custom_tool_call["name"]
-        payload = agent.last_custom_tool_call["payload"]
-        if name == "report_item_added":
-          provider.mark_completed(item["id"], payload)  # type: ignore[arg-type]
-        elif name == "report_item_not_found":
-          provider.mark_not_found(item["id"], payload)  # type: ignore[arg-type]
-        else:
-          provider.mark_failed(item["id"], f"unexpected_custom_tool: {name}")
-        return
-
-    # If loop completed without custom tool call, treat as failure with reasoning if available
-    provider.mark_failed(item["id"], "completed_without_reporting")
+      # If loop completed without custom tool call, treat as failure with reasoning if available
+      provider.mark_failed(item["id"], "completed_without_reporting")
+    finally:
+      agent.close()
 
 
 async def run_shopping(
@@ -119,15 +125,22 @@ async def run_shopping(
   list_path: Path,
   model_name: str,
   highlight_mouse: bool,
-  screen_size: tuple[int, int] = (1440, 900),
-  storage_state_path: Path | None = None,
+  screen_size: ScreenSize | tuple[int, int] = ScreenSize(1440, 900),
   time_budget: timedelta = timedelta(minutes=5),
   max_turns: int = 40,
-  camoufox_exec: str | None = None,
-  user_data_dir: Path | None = None,
+  postal_code: str,
 ) -> int:
   provider: ShoppingListProvider = YAMLShoppingListProvider(path=list_path)
-  storage_path = storage_state_path or Path("~/.config/gemini-supply/metro_auth.json").expanduser()
+  normalized_screen_size = (
+    screen_size if isinstance(screen_size, ScreenSize) else ScreenSize(*screen_size)
+  )
+
+  # Resolve persistent profile directory (env or default), ensure it exists, and announce once
+  profile_dir = resolve_profile_dir()
+  termcolor.cprint(f"Using profile: {profile_dir}", color="cyan")
+
+  # Resolve Camoufox executable path (required)
+  camoufox_exec = resolve_camoufox_exec()
 
   items = provider.get_uncompleted_items()
   if not items:
@@ -144,18 +157,24 @@ async def run_shopping(
       await _shop_single_item(
         item=item,
         provider=provider,
-        screen_size=screen_size,
-        storage_state_path=storage_path,
+        screen_size=normalized_screen_size,
         model_name=model_name,
         highlight_mouse=highlight_mouse,
         time_budget=time_budget,
         max_turns=max_turns,
         camoufox_exec=camoufox_exec,
-        user_data_dir=str(user_data_dir.expanduser()) if user_data_dir else None,
+        user_data_dir=profile_dir,
+        postal_code=postal_code,
       )
     except Exception as e:  # noqa: BLE001
+      import traceback
+      import sys
+
+      tb = traceback.format_exc()
+      termcolor.cprint("Exception while shopping item:", color="red")
+      print(tb, file=sys.stderr)
       failed.append(f"{item['name']}: {e}")
-      provider.mark_failed(item["id"], f"exception: {e}")
+      provider.mark_failed(item["id"], f"exception: {e}\n{tb}")
 
   # Best-effort summary compilation from provider is not available here; assemble minimal
   summary: ShoppingSummary = {

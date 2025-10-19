@@ -18,14 +18,14 @@ import pytest
 from google.genai import types
 
 from gemini_supply.agent import BrowserAgent
-from gemini_supply.computers import Computer, EnvState
+from gemini_supply.computers import Computer, EnvState, ScreenSize
 
 
 class MockComputer(Computer):
   """Mock Computer implementation for testing."""
 
-  def screen_size(self) -> tuple[int, int]:
-    return (1440, 900)
+  def screen_size(self) -> ScreenSize:
+    return ScreenSize(1440, 900)
 
   async def open_web_browser(self) -> EnvState:
     return EnvState(screenshot=b"mock_screenshot", url="https://example.com")
