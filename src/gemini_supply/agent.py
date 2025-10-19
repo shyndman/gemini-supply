@@ -31,6 +31,7 @@ from rich.table import Table
 
 from gemini_supply.computers import Computer, EnvState
 from gemini_supply.display import display_image_kitty
+from gemini_supply.tty_logger import TTYLogger
 from gemini_supply.grocery.types import (
   ItemAddedResult,
   ItemAddedResultModel,
@@ -110,12 +111,17 @@ class BrowserAgent:
     model_name: str,
     verbose: bool = True,
     client: genai.Client | None = None,
+    logger: TTYLogger | None = None,
+    output_label: str | None = None,
   ):
     self._browser_computer = browser_computer
     self._query = query
     self._model_name = model_name
     self._verbose = verbose
     self.final_reasoning: str | None = None
+    self._turn_index: int = 0
+    self._logger: TTYLogger | None = logger
+    self._output_label: str | None = output_label
     self._client: genai.Client = client or genai.Client(
       api_key=os.environ.get("GEMINI_API_KEY"),
     )
@@ -335,6 +341,7 @@ class BrowserAgent:
     return ret
 
   async def run_one_iteration(self) -> Literal["COMPLETE", "CONTINUE"]:
+    self._turn_index += 1
     # Generate a response from the model.
     if self._verbose:
       with console.status("Generating response from Gemini Computer Use..."):
@@ -384,8 +391,13 @@ class BrowserAgent:
     table.add_column("Function Call(s)", header_style="cyan", ratio=1)
     table.add_row(reasoning, "\n".join(function_call_strs))
     if self._verbose:
-      console.print(table)
-      print()
+      if self._logger is not None:
+        await self._logger.print_reasoning(
+          label=self._output_label, turn_index=self._turn_index, table=table
+        )
+      else:
+        console.print(table)
+        print()
 
     function_responses: list[FunctionResponse] = []
     for function_call in function_calls:
@@ -422,7 +434,16 @@ class BrowserAgent:
           except Exception:
             max_w = None
         if show_img:
-          display_image_kitty(env_state.screenshot, max_width=max_w)
+          if self._logger is not None:
+            await self._logger.show_screenshot(
+              label=self._output_label,
+              action_name=(function_call.name or ""),
+              url=env_state.url,
+              png_bytes=env_state.screenshot,
+              max_width=max_w,
+            )
+          else:
+            display_image_kitty(env_state.screenshot, max_width=max_w)
         function_responses.append(
           FunctionResponse(
             name=function_call.name,

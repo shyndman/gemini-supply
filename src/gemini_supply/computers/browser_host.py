@@ -53,6 +53,7 @@ class CamoufoxHost:
     self._playwright: playwright.async_api.Playwright | None = None
     self._context: playwright.async_api.BrowserContext | None = None
     self._browser: playwright.async_api.Browser | None = None
+    self._initial_page_claimed = False
 
     # Shared restrictions
     self._allow_domains: set[str] = {
@@ -152,8 +153,17 @@ class CamoufoxHost:
   async def new_tab(self) -> "CamoufoxTab":
     c = self._context
     assert c is not None
-    page = await c.new_page()
-    await page.goto(self._initial_url)
+    page: playwright.async_api.Page
+    # Reuse the first existing page created by the persistent context to avoid
+    # spawning an extra blank window, which Firefox may do on startup.
+    if not self._initial_page_claimed and c.pages:
+      page = c.pages[0]
+      self._initial_page_claimed = True
+      # Always navigate to the initial URL to normalize state.
+      await page.goto(self._initial_url)
+    else:
+      page = await c.new_page()
+      await page.goto(self._initial_url)
     return CamoufoxTab(
       page=page,
       screen_size=self._screen_size,
@@ -176,12 +186,10 @@ class CamoufoxHost:
     path = parsed.path
 
     if any(path.startswith(p) for p in self._blocked_paths):
-      termcolor.cprint(f"Blocked sensitive path: {url}", color="yellow")
       await route.abort()
       return
 
     if host not in self._allow_domains:
-      termcolor.cprint(f"Blocked non-allowed host: {host}", color="yellow")
       await route.abort()
       return
 

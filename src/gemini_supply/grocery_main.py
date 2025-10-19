@@ -27,6 +27,7 @@ from gemini_supply.grocery.types import (
   ShoppingSummary,
 )
 from gemini_supply.profile import resolve_profile_dir, resolve_camoufox_exec
+from gemini_supply.tty_logger import TTYLogger
 from gemini_supply.config import load_config, DEFAULT_CONFIG_PATH
 
 
@@ -91,6 +92,7 @@ async def _shop_single_item_in_tab(
   time_budget: timedelta,
   max_turns: int,
   postal_code: str,
+  logger: TTYLogger | None = None,
 ) -> Outcome:
   termcolor.cprint(f"🛒 (tab) Shopping for: {item['name']}", color="cyan")
   prompt = _build_task_prompt(item["name"], postal_code)
@@ -101,7 +103,13 @@ async def _shop_single_item_in_tab(
   tab = await host.new_tab()
   agent: BrowserAgent | None = None
   try:
-    agent = BrowserAgent(browser_computer=tab, query=prompt, model_name=model_name)
+    agent = BrowserAgent(
+      browser_computer=tab,
+      query=prompt,
+      model_name=model_name,
+      logger=logger,
+      output_label=item["name"],
+    )
     status: LoopStatus = LoopStatus.CONTINUE
     while status == LoopStatus.CONTINUE:
       turns += 1
@@ -203,6 +211,9 @@ async def run_shopping(
   failed: list[str] = []
   total_cents = 0
 
+  # Shared stdout logger for grouping reasoning + screenshots across agents
+  logger = TTYLogger()
+
   # Resolve effective concurrency: CLI > config > default 1
   eff_conc: int = 1
   if concurrency is not None and concurrency > 0:
@@ -218,10 +229,7 @@ async def run_shopping(
     )
     eff_conc = 1
 
-  # Disable inline screenshots for parallel runs to keep terminal readable
-  prev_img = os.environ.get("GEMINI_SUPPLY_IMG_ENABLE", "1")
-  if eff_conc > 1:
-    os.environ["GEMINI_SUPPLY_IMG_ENABLE"] = "0"
+  # Inline screenshots are preserved; stdout grouping is protected by a lock.
 
   try:
     # Always use a single host; run sequentially or in parallel tabs.
@@ -251,6 +259,7 @@ async def run_shopping(
               time_budget=time_budget,
               max_turns=max_turns,
               postal_code=resolved_postal,
+              logger=logger,
             )
             if out["type"] == "added":
               res = out["result"]
@@ -285,6 +294,7 @@ async def run_shopping(
                 time_budget=time_budget,
                 max_turns=max_turns,
                 postal_code=resolved_postal,
+                logger=logger,
               )
               results.append((it, out))
             except Exception as e:  # noqa: BLE001
@@ -316,8 +326,7 @@ async def run_shopping(
             else:
               failed.append(outcome["error"])
   finally:
-    if eff_conc > 1:
-      os.environ["GEMINI_SUPPLY_IMG_ENABLE"] = prev_img
+    ...
 
   # Best-effort summary compilation from provider is not available here; assemble minimal
   summary: ShoppingSummary = {
