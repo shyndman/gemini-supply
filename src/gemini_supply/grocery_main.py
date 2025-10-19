@@ -10,7 +10,11 @@ import termcolor
 
 from gemini_supply.agent import BrowserAgent
 from gemini_supply.computers import AuthExpiredError, CamoufoxMetroBrowser, ScreenSize
-from gemini_supply.grocery.shopping_list import ShoppingListProvider, YAMLShoppingListProvider
+from gemini_supply.grocery.shopping_list import (
+  ShoppingListProvider,
+  YAMLShoppingListProvider,
+  HomeAssistantShoppingListProvider,
+)
 from gemini_supply.grocery.types import (
   ItemAddedResult,
   ItemNotFoundResult,
@@ -18,6 +22,7 @@ from gemini_supply.grocery.types import (
   ShoppingSummary,
 )
 from gemini_supply.profile import resolve_profile_dir, resolve_camoufox_exec
+from gemini_supply.config import load_config, DEFAULT_CONFIG_PATH
 
 
 def _build_task_prompt(item_name: str, postal_code: str) -> str:
@@ -144,15 +149,38 @@ async def _shop_single_item(
 
 async def run_shopping(
   *,
-  list_path: Path,
+  list_path: Path | None,
   model_name: str,
   highlight_mouse: bool,
   screen_size: ScreenSize | tuple[int, int] = ScreenSize(1440, 900),
   time_budget: timedelta = timedelta(minutes=5),
   max_turns: int = 40,
-  postal_code: str,
+  postal_code: str | None,
+  no_retry: bool = False,
+  config_path: Path | None = None,
 ) -> int:
-  provider: ShoppingListProvider = YAMLShoppingListProvider(path=list_path)
+  # Choose provider from config (if present), else YAML file path
+  cfg = load_config(config_path or DEFAULT_CONFIG_PATH)
+  # Resolve postal code from CLI or config
+  resolved_postal: str | None = postal_code
+  if not resolved_postal and cfg:
+    pc = cfg.get("postal_code")
+    if isinstance(pc, str) and pc.strip():
+      resolved_postal = pc.strip()
+  if not resolved_postal:
+    raise ValueError("Postal code is required via --postal-code or config postal_code")
+  provider: ShoppingListProvider
+  if cfg and cfg.get("shopping_list", {}).get("provider") == "home_assistant":
+    ha = cfg.get("home_assistant", {})
+    url = str(ha.get("url", "")).strip()
+    token = str(ha.get("token", "")).strip()
+    if not url or not token:
+      raise ValueError("home_assistant.url and home_assistant.token are required in config")
+    provider = HomeAssistantShoppingListProvider(ha_url=url, token=token, no_retry=no_retry)
+  else:
+    if list_path is None:
+      raise ValueError("--shopping-list is required for YAML provider")
+    provider = YAMLShoppingListProvider(path=list_path)
   normalized_screen_size = (
     screen_size if isinstance(screen_size, ScreenSize) else ScreenSize(*screen_size)
   )
@@ -186,7 +214,7 @@ async def run_shopping(
         max_turns=max_turns,
         camoufox_exec=camoufox_exec,
         user_data_dir=profile_dir,
-        postal_code=postal_code,
+        postal_code=resolved_postal,
       )
       if outcome["type"] == "added":
         res = outcome["result"]
@@ -210,6 +238,8 @@ async def run_shopping(
   summary: ShoppingSummary = {
     "added_items": added,
     "not_found_items": not_found,
+    "out_of_stock_items": [],
+    "duplicate_items": [],
     "failed_items": failed,
     "total_cost_cents": total_cents,
     "total_cost_text": f"${total_cents / 100:.2f}",

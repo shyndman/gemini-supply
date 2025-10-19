@@ -1,0 +1,18 @@
+# gemini-supply sample config
+# Copy to ~/.config/gemini-supply/config.yaml
+# Keep this file private (do not commit real tokens).
+
+shopping_list:
+  provider: "home_assistant"  # options: home_assistant
+
+home_assistant:
+  url: "http://home.don"  # include http:// or https://
+  token: "YOUR_LONG_LIVED_ACCESS_TOKEN"
+
+# Retailer/location settings
+postal_code: "M5V 1J1"  # used for delivery prompt on metro.ca
+
+# Notes:
+# - When provider is home_assistant, the CLI does not require --shopping-list.
+# - You can omit --postal-code if postal_code is set here.
+# - For YAML provider, omit this config and pass --shopping-list /path/to/list.yaml.

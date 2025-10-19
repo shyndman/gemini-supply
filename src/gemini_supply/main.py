@@ -29,26 +29,37 @@ PLAYWRIGHT_SCREEN_SIZE = (1440, 900)
 class Shop(Command):
   """Shop all uncompleted items from a shopping list on metro.ca"""
 
-  shopping_list: Path = arg(help="Path to the shopping list YAML", parser=cp.Path(exists=True))
+  shopping_list: Path | None = arg(
+    None, help="Path to the shopping list YAML (YAML provider)", parser=cp.Path(exists=True)
+  )
   model: str = arg("gemini-2.5-computer-use-preview-10-2025", help="Model to use")
   highlight_mouse: bool = arg(False, help="Highlight mouse for debugging")
   time_budget: timedelta = arg(
     timedelta(minutes=5), help="Time budget per item", parser=cp.TimeDelta()
   )
   max_turns: int = arg(40, help="Max agent turns per item")
-  postal_code: str = arg(help="Postal code to use if delivery prompt appears (e.g., M5V 1J1)")
+  postal_code: str | None = arg(None, help="Postal code to use; may also be set in config")
+  no_retry: bool = arg(
+    False,
+    help="Skip items already tagged (#not_found, #out_of_stock, #failed, #dupe)",
+  )
+  config: Path | None = arg(
+    None, help="Path to config.yaml (defaults to ~/.config/gemini-supply/config.yaml)"
+  )
 
   @override
   async def run(self) -> None:
     # shop delegates profile/executable resolution to grocery_main
     await run_shopping(
-      list_path=self.shopping_list.expanduser(),
+      list_path=self.shopping_list.expanduser() if self.shopping_list else None,
       model_name=self.model,
       highlight_mouse=self.highlight_mouse,
       screen_size=PLAYWRIGHT_SCREEN_SIZE,
       time_budget=self.time_budget,
       max_turns=self.max_turns,
       postal_code=self.postal_code,
+      no_retry=self.no_retry,
+      config_path=self.config.expanduser() if self.config else None,
     )
 
 

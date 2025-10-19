@@ -58,6 +58,8 @@ class ShoppingListItem(TypedDict):
 class ShoppingSummary(TypedDict):
   added_items: list[ItemAddedResult]
   not_found_items: list[ItemNotFoundResult]
+  out_of_stock_items: list[str]
+  duplicate_items: list[str]
   failed_items: list[str]
   total_cost_cents: int
   total_cost_text: str
