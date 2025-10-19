@@ -2,46 +2,46 @@
 
 ## Overview
 
-This document describes how to integrate the grocery agent with Home Assistant's shopping list functionality. The agent implements the abstract `ShoppingListProvider` interface to read items from and update state in Home Assistant.
+This document describes how to integrate the grocery agent with Home Assistant's Shopping list functionality. The agent implements the abstract `ShoppingListProvider` interface to read items from and update state in Home Assistant over HA's REST API.
 
 ## Prerequisites
 
 - Home Assistant instance with API access
 - Shopping list integration enabled in Home Assistant
-- Long-lived access token for API authentication
+- Long‑lived access token for API authentication
 
 ## Integration Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Home Assistant                            │
+│                       Home Assistant                         │
 │                                                              │
-│  Shopping List:                                              │
+│  Shopping List (global):                                     │
 │    ☐ milk                                                    │
 │    ☐ bread                                                   │
-│    ☑ eggs (completed = in cart)                             │
-│    ☐ butter #404 (not found)                                │
+│    ☑ eggs (completed = in cart)                              │
+│    ☐ butter #not_found                                       │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
                    ▲
-                   │ (queries list, updates immediately)
-                   │
+                   │ (REST: read + mutate items)
+                   │           and create summary notification
 ┌─────────────────────────────────────────────────────────────┐
 │           HomeAssistantShoppingListProvider                  │
 │                                                              │
-│  Implements: ShoppingListProvider                           │
+│  Implements: ShoppingListProvider                            │
 │                                                              │
-│  Methods:                                                   │
-│    - get_uncompleted_items() → list[ShoppingListItem]      │
-│    - mark_completed(item_id)                                │
-│    - mark_not_found(item_id, explanation)                   │
-│    - mark_failed(item_id, error)                            │
-│    - send_summary(summary)                                  │
+│  Methods:                                                    │
+│    - get_uncompleted_items() → list[ShoppingListItem]        │
+│    - mark_completed(id)                                      │
+│    - mark_not_found(id)                                      │
+│    - mark_failed(id)                                         │
+│    - send_summary(summary)                                   │
 │                                                              │
-│  HA-Specific Features:                                      │
-│    - Fire events for each state change                      │
-│    - Create persistent notifications                        │
-│    - Tag items with #404 or #failed                         │
+│  Behavior:                                                   │
+│    - Serial processing, minimal logging                      │
+│    - Tag items (#not_found, #out_of_stock, #failed, #dupe)   │
+│    - Create persistent notification per run                  │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -50,56 +50,63 @@ This document describes how to integrate the grocery agent with Home Assistant's
 
 ### Configuration
 
-**File Location:** `~/.config/gemini-supply/config.yaml`
+File: `~/.config/gemini-supply/config.yaml`
 
 ```yaml
 shopping_list:
   provider: "home_assistant"
 
 home_assistant:
-  url: "http://homeassistant.local:8123"
+  url: "http://home.don"
   token: "YOUR_LONG_LIVED_ACCESS_TOKEN"
-  shopping_list_entity: "todo.shopping_list"
 ```
 
-### HAShoppingListProvider Class
+Security: Keep this file private (e.g., user‑only permissions) and out of version control.
+
+### HomeAssistantShoppingListProvider Class
 
 **Constructor:**
-- `__init__(ha_url, token, entity_id="todo.shopping_list")`
-- Store HA URL, auth token, entity ID
+- `__init__(ha_url, token)`
+- Store HA URL and auth token
 - Setup authorization headers
 
 **Core Methods:**
 
 **`get_uncompleted_items()`**
-- GET `/api/todo/{entity_id}/items`
-- Filter for `status == "needs_action"` and no error tags
-- Return list of `ShoppingListItem` objects
+- GET `/api/shopping_list`
+- Filter for `complete == false`
+- By default, include items even if tagged; with `--no-retry`, exclude any item containing `#not_found`, `#out_of_stock`, `#failed`, or `#dupe`
+- Return list of `ShoppingListItem` objects (id, name, complete)
 
-**`mark_completed(item_id)`**
-- POST `/api/services/todo/update_item` with `status: "completed"`
-- Fire event: `grocery_agent.item_added`
+**`mark_completed(id)`**
+- POST `/api/shopping_list/item/{id}` with `{ complete: true, name: "<base name>" }`
+- Remove any error tags from the name when marking complete
 
-**`mark_not_found(item_id, explanation)`**
-- GET item, append " #404" to summary
-- POST updated summary
-- Fire event: `grocery_agent.item_not_found` with explanation
+**`mark_not_found(id)`**
+- Append `#not_found` to the item name (only if absent), ensure `complete` stays `false`
+- POST `/api/shopping_list/item/{id}` with `{ name: "<base name> #not_found", complete: false }`
 
-**`mark_failed(item_id, error)`**
-- GET item, append " #failed" to summary
-- POST updated summary
-- Fire event: `grocery_agent.error` with error details
+**`mark_failed(id)`**
+- Append `#failed` to the item name (only if absent and without other error tags), ensure `complete` stays `false`
+- POST `/api/shopping_list/item/{id}` with `{ name: "<base name> #failed", complete: false }`
+
+**`mark_out_of_stock(id)`**
+- Append `#out_of_stock` to the item name (only if absent), ensure `complete` stays `false`
+- POST `/api/shopping_list/item/{id}` with `{ name: "<base name> #out_of_stock", complete: false }`
 
 **`send_summary(summary)`**
-- Format summary as markdown with sections: Added to Cart, Not Found, Failed
-- POST `/api/services/persistent_notification/create`
-- Title: "Grocery Shopping Complete"
+- Format summary as Markdown with sections: Added to Cart, Out of Stock, Not Found, Duplicates, Failed (omit empty sections)
+- First line includes run time, for example: `Run: Oct 19, 2025 2:32pm`
+- POST `/api/services/persistent_notification/create` with `{ title: "Grocery Shopping Complete", message: "<markdown>" }`
+- Also print the same summary to stdout if any processing occurred
 
 **Helper Methods:**
-- `_get_item(item_id)`: Fetch single item by UID
-- `_fire_event(event_type, data)`: POST to `/api/events/{event_type}`
-- `_has_error_tag(summary)`: Check for #404 or #failed in summary
-- `_format_summary(summary)`: Convert ShoppingSummary to markdown
+- `_update_item(id, fields)`: POST `/api/shopping_list/item/{id}` with partial `{ name?, complete? }`
+- `_strip_tags(name)`: Remove any of `#not_found #out_of_stock #failed #dupe` from the end
+- `_apply_tags(name, tags)`: Append canonical ordered tags without duplicates
+- `_parse_quantity(name)`: Detect quantity from patterns `xN`, `Nx`, `(N)`, leading/trailing number; first match wins
+- `_format_summary(summary)`: Convert ShoppingSummary to Markdown (tags stripped, quantities rendered as ×N)
+- `_notify_persistent(markdown)`: POST to `/api/services/persistent_notification/create`
 
 ## State Tracking
 
@@ -107,100 +114,24 @@ home_assistant:
 
 | State | Meaning | How Represented |
 |-------|---------|-----------------|
-| Uncompleted | Not yet added to cart | `status: needs_action` |
-| Completed | Successfully added to cart | `status: completed` |
-| Not Found | Product not found on metro.ca | `needs_action` + `#404` tag in name |
-| Failed | Error during processing | `needs_action` + `#failed` tag in name |
-
-### Events Fired
-
-| Event | When | Data |
-|-------|------|------|
-| `grocery_agent.item_added` | Item successfully added to cart | `{item_id, timestamp}` |
-| `grocery_agent.item_not_found` | Product not found | `{item_id, explanation, timestamp}` |
-| `grocery_agent.auth_expired` | Session expired | `{timestamp}` |
-| `grocery_agent.error` | Unexpected error | `{item_id, error, timestamp}` |
+| Uncompleted | Not yet added to cart | `complete: false` |
+| Completed | Successfully added to cart | `complete: true` (tags removed) |
+| Not Found | No retailer match | `complete: false` + `#not_found` tag in name |
+| Out of Stock | Match found but unavailable | `complete: false` + `#out_of_stock` tag in name |
+| Failed | Network/parsing/5xx/unexpected | `complete: false` + `#failed` (exclusive) |
+| Duplicate | Additional item with same normalized name | `complete: false` + `#dupe` (no retailer processing) |
 
 ### Notifications
 
 Persistent notifications are created for:
 - **Summary Report**: After all items processed (always)
-- **Authentication Expired**: When session expires (actionable error)
-- **Critical Failures**: Unexpected system errors (rare)
+- **Retailer Authentication/Session Failures**
+- **Critical Failures**: Unexpected system errors (non‑401/403)
 
+401/403 from Home Assistant are treated as fatal (no notification possible).
 ## Home Assistant Configuration
 
-### Shell Command Setup
-
-Add to `configuration.yaml`:
-
-```yaml
-shell_command:
-  grocery_shop: "cd /path/to/gemini-supply && uv run grocery-agent shop"
-```
-
-### Script for UI Triggering
-
-```yaml
-script:
-  do_grocery_shopping:
-    alias: "Do Grocery Shopping"
-    sequence:
-      - service: shell_command.grocery_shop
-```
-
-### Automation Examples
-
-**Option 1: Manual Button Trigger**
-
-```yaml
-automation:
-  - alias: "Grocery Shopping Button"
-    trigger:
-      - platform: state
-        entity_id: input_boolean.start_grocery_shopping
-        to: "on"
-    action:
-      - service: script.do_grocery_shopping
-      - service: input_boolean.turn_off
-        target:
-          entity_id: input_boolean.start_grocery_shopping
-```
-
-**Option 2: Voice Assistant Integration**
-
-Set up Google Assistant or Alexa to trigger the `script.do_grocery_shopping` script.
-
-### Event-Based Automations (Optional)
-
-**Notification on Item Added:**
-
-```yaml
-automation:
-  - alias: "Notify Item Added to Cart"
-    trigger:
-      - platform: event
-        event_type: grocery_agent.item_added
-    action:
-      - service: notify.mobile_app
-        data:
-          message: "Added {{ trigger.event.data.item_id }} to cart"
-```
-
-**Alert on Auth Expired:**
-
-```yaml
-automation:
-  - alias: "Alert Auth Expired"
-    trigger:
-      - platform: event
-        event_type: grocery_agent.auth_expired
-    action:
-      - service: notify.mobile_app
-        data:
-          message: "Grocery agent authentication expired. Run: uv run grocery-agent authenticate"
-          title: "Action Required"
-```
+No HA automations are required. The provider reads and updates the Shopping list via REST and creates a persistent notification for the run summary.
 
 ## Setup Instructions
 
@@ -222,9 +153,8 @@ shopping_list:
   provider: "home_assistant"
 
 home_assistant:
-  url: "http://homeassistant.local:8123"
+  url: "http://home.don"
   token: "YOUR_TOKEN_HERE"
-  shopping_list_entity: "todo.shopping_list"
 ```
 
 ### 3. Add Items to Shopping List
@@ -254,17 +184,7 @@ uv run grocery-agent shop
 **Solutions**:
 - Verify HA token is valid
 - Check HA API is accessible from agent machine
-- Verify `shopping_list_entity` matches your entity ID
 - Check agent logs for API errors
-
-### Events Not Firing
-
-**Problem**: Automations not triggering on events
-
-**Solutions**:
-- Verify events are enabled in HA
-- Check Developer Tools → Events to see if events are firing
-- Ensure event names match exactly
 
 ### Authentication Issues
 
@@ -277,42 +197,44 @@ uv run grocery-agent shop
 - Test token with curl:
   ```bash
   curl -H "Authorization: Bearer YOUR_TOKEN" \
-       http://homeassistant.local:8123/api/
+       http://home.don/api/
   ```
 
-## Advanced Configuration
+## Behavior Details
 
-### Custom Entity ID
+### API Endpoints
+- Read items: `GET /api/shopping_list` → `[ { id, name, complete } ]`
+- Update item: `POST /api/shopping_list/item/{id}` with JSON body `{ name?: string, complete?: bool }`
+- Create summary notification: `POST /api/services/persistent_notification/create` with `{ title, message }`
 
-If your shopping list entity has a different name:
+Timeout is 5 seconds for all HA requests. No automatic retries.
 
-```yaml
-home_assistant:
-  shopping_list_entity: "todo.my_custom_list"
-```
+### Tagging Rules
+- Tags are appended at the end of the name in this canonical order: `#not_found #out_of_stock #failed #dupe` (subset as needed)
+- Exclusivity: `#failed` is exclusive; `#not_found` and `#out_of_stock` are mutually exclusive
+- `#dupe` stands alone (no retailer processing)
+- Tags are added only if missing; duplicates are not added
 
-### Multiple Shopping Lists
+### Duplicates
+- The first occurrence of a name is processed; subsequent exact‑name matches are tagged `#dupe` and skipped
+- Completed items are ignored entirely
 
-Run separate agent instances with different configs:
+### Retry Semantics
+- Default: reprocess items even if tagged
+- `--no-retry`: skip any item that contains any of the tags (`#not_found`, `#out_of_stock`, `#failed`, `#dupe`)
 
-```bash
-# Groceries
-uv run grocery-agent shop --config ~/.config/gemini-supply/groceries.yaml
+### Quantities and Names
+- Quantities are parsed from one of: trailing/leading unitless number, `xN`, `Nx`, `(N)`; the first match wins
+- Summary displays base names without tags; quantities are rendered as `×N`
 
-# Household items
-uv run grocery-agent shop --config ~/.config/gemini-supply/household.yaml
-```
+### Summary Format
+- Title: `Grocery Shopping Complete`
+- First line: `Run: <pretty local time>`, e.g., `Run: Oct 19, 2025 2:32pm`
+- Sections (omit if empty): Added to Cart, Out of Stock, Not Found, Duplicates, Failed
+- Items: `- <name>[ ×<qty>]`, original HA order within each section
+- The same summary is always printed to the terminal if any processing occurred; a short message is printed if nothing to do
 
-### Telegram Notifications
-
-To also send summary via Telegram, add to `config.yaml`:
-
-```yaml
-notifications:
-  telegram:
-    enabled: true
-    bot_token: "YOUR_BOT_TOKEN"
-    chat_id: "YOUR_CHAT_ID"
-```
-
-The provider will send to both HA and Telegram when configured.
+### Error Handling and Logging
+- 401/403 from HA: fatal error (no HA notification)
+- Other HA errors (>=400): logged minimally; reflected in summary or a separate persistent notification when appropriate
+- Minimal logs overall; reasons (e.g., timeout 5s, parsing error) appear in logs, not in the summary
