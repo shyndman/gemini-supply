@@ -27,32 +27,75 @@ from gemini_supply.grocery.types import (
   ShoppingSummary,
 )
 from gemini_supply.profile import resolve_profile_dir, resolve_camoufox_exec
+from gemini_supply.preferences.constants import DEFAULT_NAG_STRINGS, DEFAULT_NORMALIZER_MODEL
+from gemini_supply.preferences.messenger import TelegramPreferenceMessenger, TelegramSettings
+from gemini_supply.preferences.normalizer import NormalizationAgent
+from gemini_supply.preferences.service import PreferenceCoordinator, PreferenceItemSession
+from gemini_supply.preferences.store import PreferenceStore
+from gemini_supply.preferences.types import NormalizedItem, PreferenceRecord
 from gemini_supply.tty_logger import TTYLogger
 from gemini_supply.config import load_config, DEFAULT_CONFIG_PATH
 
 
-def _build_task_prompt(item_name: str, postal_code: str) -> str:
-  return (
-    "Goal: Add ONE specific item to metro.ca cart\n"
-    f"Item: {item_name}\n\n"
-    "Instructions:\n"
-    "  1. Use metro.ca to find the product.\n"
-    "  2. Prefer using navigate to open the search results page (SRP) directly: \n"
-    "     https://www.metro.ca/en/online-grocery/search?filter={ENCODED_QUERY}\n"
-    "     Otherwise, use the header search input present on all pages.\n"
-    "  3. From the SRP, choose the best-matching result. CLICK THE PRODUCT IMAGE or name to open the product's page.\n"
-    "  4. On the product page, press 'Add to Cart'. If a postal code form appears, enter the postal code exactly as: \n"
-    f"     {postal_code}\n"
-    '     If the "Delivery or Pickup?" form appears, click the "I haven\'t made my choice yet" link at the bottom to defer selection, then press \'Add to Cart\' again on the product page.\n'
-    "  5. Verify success: The 'Add to Cart' button becomes a quantity control (with +/−).\n"
-    "     If it does not change, try again or explain why it failed.\n"
-    "  6. Call report_item_added(item_name, price_text, price_cents, url, quantity) when successful.\n"
-    "     The 'url' MUST be the product page URL (NOT the search results page).\n"
-    "  7. If product cannot be located after reasonable attempts, call report_item_not_found(item_name, explanation).\n\n"
+def _build_task_prompt(
+  item_name: str,
+  postal_code: str,
+  normalized: NormalizedItem | None,
+  preference: PreferenceRecord | None,
+  can_request_choice: bool,
+) -> str:
+  normalized_lines: list[str] = []
+  if normalized is not None:
+    normalized_lines.append(
+      f"Normalized category: {normalized['category_label']} (key: {normalized['canonical_key']})"
+    )
+    if normalized.get("brand"):
+      normalized_lines.append(f"Detected brand: {normalized['brand']}")
+    normalized_lines.append(f"Original text: {normalized['original_text']}")
+    normalized_lines.append("")
+  preference_lines: list[str] = []
+  if preference is not None:
+    preference_lines.append("Known preference available:")
+    preference_lines.append(f"  - Product: {preference.product_name}")
+    preference_lines.append(f"  - URL: {preference.product_url}")
+    preference_lines.append(
+      "  Always prioritise this product unless it is unavailable or clearly incorrect."
+    )
+    preference_lines.append("")
+  instructions = [
+    "Instructions:",
+    "  1. Use metro.ca to find the product.",
+    "  2. Prefer using navigate to open the search results page (SRP) directly: ",
+    "     https://www.metro.ca/en/online-grocery/search?filter={ENCODED_QUERY}",
+    "     Otherwise, use the header search input present on all pages.",
+    "  3. From the SRP, choose the best-matching result. CLICK THE PRODUCT IMAGE or name to open the product's page.",
+    "  4. On the product page, press 'Add to Cart'. If a postal code form appears, enter the postal code exactly as:",
+    f"     {postal_code}",
+    '     If the "Delivery or Pickup?" form appears, click the "I haven\'t made my choice yet" link at the bottom to defer selection, then press \'Add to Cart\' again on the product page.',
+    "  5. Verify success: The 'Add to Cart' button becomes a quantity control (with +/−).",
+    "     If it does not change, try again or explain why it failed.",
+    "  6. Call report_item_added(item_name, price_text, price_cents, url, quantity) when successful.",
+    "     The 'url' MUST be the product page URL (NOT the search results page).",
+    "  7. If product cannot be located after reasonable attempts, call report_item_not_found(item_name, explanation).",
+  ]
+  if can_request_choice:
+    instructions.append(
+      "  8. When you cannot confidently pick a product, call request_preference_choice with up to 10 promising SRP results (include titles and product URLs). Wait for the response before continuing."
+    )
+  instructions_text = "\n".join(instructions) + "\n\n"
+  header = f"Goal: Add ONE specific item to metro.ca cart\nItem: {item_name}\n\n"
+  constraints = (
     "Constraints:\n"
     "  - Stay on metro.ca and allowed resources only.\n"
     "  - Do NOT navigate to checkout, payment, or account pages.\n"
     "  - Focus solely on adding the requested item.\n"
+  )
+  return (
+    header
+    + "\n".join(normalized_lines)
+    + "".join(preference_lines)
+    + instructions_text
+    + constraints
   )
 
 
@@ -93,9 +136,17 @@ async def _shop_single_item_in_tab(
   max_turns: int,
   postal_code: str,
   logger: TTYLogger | None = None,
+  preference_session: PreferenceItemSession | None = None,
+  existing_preference: PreferenceRecord | None = None,
 ) -> Outcome:
   termcolor.cprint(f"🛒 (tab) Shopping for: {item['name']}", color="cyan")
-  prompt = _build_task_prompt(item["name"], postal_code)
+  normalized = preference_session.normalized if preference_session is not None else None
+  can_request_choice = (
+    preference_session.can_request_choice if preference_session is not None else False
+  )
+  prompt = _build_task_prompt(
+    item["name"], postal_code, normalized, existing_preference, can_request_choice
+  )
   start = time.monotonic()
   budget_seconds = time_budget.total_seconds()
   turns = 0
@@ -109,6 +160,7 @@ async def _shop_single_item_in_tab(
       model_name=model_name,
       logger=logger,
       output_label=item["name"],
+      preference_session=preference_session,
     )
     status: LoopStatus = LoopStatus.CONTINUE
     while status == LoopStatus.CONTINUE:
@@ -134,8 +186,13 @@ async def _shop_single_item_in_tab(
       if agent.last_custom_tool_call is not None:
         name = agent.last_custom_tool_call["name"]
         payload = agent.last_custom_tool_call["payload"]
+        if name == "request_preference_choice":
+          agent.last_custom_tool_call = None
+          continue
         if name == "report_item_added":
           provider.mark_completed(item["id"], payload)  # type: ignore[arg-type]
+          if preference_session is not None:
+            await preference_session.record_success(payload)  # type: ignore[arg-type]
           return {"type": "added", "result": payload}  # type: ignore[dict-item]
         elif name == "report_item_not_found":
           provider.mark_not_found(item["id"], payload)  # type: ignore[arg-type]
@@ -172,20 +229,24 @@ async def run_shopping(
   cfg = load_config(config_path or DEFAULT_CONFIG_PATH)
   # Resolve postal code from CLI or config
   resolved_postal: str | None = postal_code
-  if not resolved_postal and cfg:
-    pc = cfg.get("postal_code")
-    if isinstance(pc, str) and pc.strip():
-      resolved_postal = pc.strip()
+  if resolved_postal is None and cfg is not None and cfg.postal_code:
+    resolved_postal = cfg.postal_code
   if not resolved_postal:
     raise ValueError("Postal code is required via --postal-code or config postal_code")
   provider: ShoppingListProvider
-  if cfg and cfg.get("shopping_list", {}).get("provider") == "home_assistant":
-    ha = cfg.get("home_assistant", {})
-    url = str(ha.get("url", "")).strip()
-    token = str(ha.get("token", "")).strip()
-    if not url or not token:
+  if (
+    cfg is not None
+    and cfg.shopping_list is not None
+    and cfg.shopping_list.provider == "home_assistant"
+  ):
+    ha = cfg.home_assistant
+    if ha is None or not ha.url or not ha.token:
       raise ValueError("home_assistant.url and home_assistant.token are required in config")
-    provider = HomeAssistantShoppingListProvider(ha_url=url, token=token, no_retry=no_retry)
+    provider = HomeAssistantShoppingListProvider(
+      ha_url=ha.url,
+      token=ha.token,
+      no_retry=no_retry,
+    )
   else:
     if list_path is None:
       raise ValueError("--shopping-list is required for YAML provider")
@@ -218,8 +279,8 @@ async def run_shopping(
   eff_conc: int = 1
   if concurrency is not None and concurrency > 0:
     eff_conc = concurrency
-  elif cfg and isinstance(cfg.get("concurrency"), int) and int(cfg.get("concurrency")) >= 1:  # type: ignore[arg-type]
-    eff_conc = int(cfg.get("concurrency"))  # type: ignore[call-overload]
+  elif cfg is not None and cfg.concurrency is not None:
+    eff_conc = cfg.concurrency
 
   # Guard YAML provider from concurrent writes; force sequential
   if isinstance(provider, YAMLShoppingListProvider) and eff_conc > 1:
@@ -231,63 +292,68 @@ async def run_shopping(
 
   # Inline screenshots are preserved; stdout grouping is protected by a lock.
 
+  preference_coordinator: PreferenceCoordinator | None = None
   try:
-    # Always use a single host; run sequentially or in parallel tabs.
-    # Headless by default for shop; allow override via PLAYWRIGHT_HEADLESS=0
-    env_h = os.environ.get("PLAYWRIGHT_HEADLESS", "").strip().lower()
-    headless = False if env_h in ("0", "false", "no") else True
-    async with CamoufoxHost(
-      screen_size=normalized_screen_size,
-      user_data_dir=profile_dir,
-      initial_url="https://www.metro.ca",
-      highlight_mouse=highlight_mouse,
-      enforce_restrictions=True,
-      executable_path=camoufox_exec,
-      headless=headless,
-    ) as host:
-      import asyncio
+    pref_cfg = cfg.preferences if cfg is not None else None
+    messenger: TelegramPreferenceMessenger | None = None
+    if pref_cfg is not None:
+      pref_path_str = pref_cfg.file or "~/.config/gemini-supply/preferences.yaml"
+      store = PreferenceStore(Path(pref_path_str).expanduser())
+      normalizer = NormalizationAgent(
+        model_name=pref_cfg.normalizer_model or DEFAULT_NORMALIZER_MODEL,
+        base_url=pref_cfg.normalizer_api_base_url,
+        api_key=pref_cfg.normalizer_api_key,
+      )
+      tel_cfg = pref_cfg.telegram
+      if tel_cfg is not None and tel_cfg.bot_token and tel_cfg.chat_id is not None:
+        nag_minutes = tel_cfg.nag_minutes or 30
+        nag_delta = timedelta(minutes=nag_minutes)
+        token = tel_cfg.bot_token
+        chat_id = tel_cfg.chat_id
+        if token and chat_id is not None:
+          settings = TelegramSettings(
+            bot_token=token,
+            chat_id=chat_id,
+            nag_interval=nag_delta,
+          )
+          messenger = TelegramPreferenceMessenger(
+            settings=settings, nag_strings=DEFAULT_NAG_STRINGS
+          )
+      preference_coordinator = PreferenceCoordinator(
+        normalizer=normalizer,
+        store=store,
+        messenger=messenger,
+      )
+      await preference_coordinator.start()
 
-      if eff_conc <= 1:
-        for item in items:
-          try:
-            out = await _shop_single_item_in_tab(
-              host=host,
-              item=item,
-              provider=provider,
-              model_name=model_name,
-              highlight_mouse=highlight_mouse,
-              time_budget=time_budget,
-              max_turns=max_turns,
-              postal_code=resolved_postal,
-              logger=logger,
-            )
-            if out["type"] == "added":
-              res = out["result"]
-              added.append(res)
-              total_cents += res["price_cents"]
-            elif out["type"] == "not_found":
-              not_found.append(out["result"])
-            else:
-              failed.append(out["error"])
-          except Exception as e:  # noqa: BLE001
-            import traceback
-            import sys
+    try:
+      # Always use a single host; run sequentially or in parallel tabs.
+      # Headless by default for shop; allow override via PLAYWRIGHT_HEADLESS=0
+      env_h = os.environ.get("PLAYWRIGHT_HEADLESS", "").strip().lower()
+      headless = False if env_h in ("0", "false", "no") else True
+      async with CamoufoxHost(
+        screen_size=normalized_screen_size,
+        user_data_dir=profile_dir,
+        initial_url="https://www.metro.ca",
+        highlight_mouse=highlight_mouse,
+        enforce_restrictions=True,
+        executable_path=camoufox_exec,
+        headless=headless,
+      ) as host:
+        import asyncio
 
-            tb = traceback.format_exc()
-            termcolor.cprint("Exception while shopping item:", color="red")
-            print(tb, file=sys.stderr)
-            failed.append(f"{item['name']}: {e}")
-            provider.mark_failed(item["id"], f"exception: {e}\n{tb}")
-      else:
-        sem = asyncio.Semaphore(eff_conc)
-        results: list[tuple[ShoppingListItem, Outcome | Exception]] = []
-
-        async def run_one(it: ShoppingListItem) -> None:
-          async with sem:
+        if eff_conc <= 1:
+          for item in items:
+            preference_session: PreferenceItemSession | None = None
+            existing_preference: PreferenceRecord | None = None
+            if preference_coordinator is not None:
+              normalized = await preference_coordinator.normalize_item(item["name"])
+              preference_session = preference_coordinator.create_session(normalized)
+              existing_preference = await preference_session.existing_preference()
             try:
               out = await _shop_single_item_in_tab(
                 host=host,
-                item=it,
+                item=item,
                 provider=provider,
                 model_name=model_name,
                 highlight_mouse=highlight_mouse,
@@ -295,36 +361,84 @@ async def run_shopping(
                 max_turns=max_turns,
                 postal_code=resolved_postal,
                 logger=logger,
+                preference_session=preference_session,
+                existing_preference=existing_preference,
               )
-              results.append((it, out))
+              if out["type"] == "added":
+                res = out["result"]
+                added.append(res)
+                total_cents += res["price_cents"]
+              elif out["type"] == "not_found":
+                not_found.append(out["result"])
+              else:
+                failed.append(out["error"])
             except Exception as e:  # noqa: BLE001
-              results.append((it, e))
+              import traceback
+              import sys
 
-        tg: asyncio.TaskGroup
-        async with asyncio.TaskGroup() as tg:
-          for it in items:
-            tg.create_task(run_one(it))
+              tb = traceback.format_exc()
+              termcolor.cprint("Exception while shopping item:", color="red")
+              print(tb, file=sys.stderr)
+              failed.append(f"{item['name']}: {e}")
+              provider.mark_failed(item["id"], f"exception: {e}\n{tb}")
+        else:
+          sem = asyncio.Semaphore(eff_conc)
+          results: list[tuple[ShoppingListItem, Outcome | Exception]] = []
 
-        for it, res in results:
-          if isinstance(res, Exception):
-            import traceback
-            import sys
+          async def run_one(it: ShoppingListItem) -> None:
+            async with sem:
+              preference_session: PreferenceItemSession | None = None
+              existing_preference: PreferenceRecord | None = None
+              if preference_coordinator is not None:
+                normalized = await preference_coordinator.normalize_item(it["name"])
+                preference_session = preference_coordinator.create_session(normalized)
+                existing_preference = await preference_session.existing_preference()
+              try:
+                out = await _shop_single_item_in_tab(
+                  host=host,
+                  item=it,
+                  provider=provider,
+                  model_name=model_name,
+                  highlight_mouse=highlight_mouse,
+                  time_budget=time_budget,
+                  max_turns=max_turns,
+                  postal_code=resolved_postal,
+                  logger=logger,
+                  preference_session=preference_session,
+                  existing_preference=existing_preference,
+                )
+                results.append((it, out))
+              except Exception as e:  # noqa: BLE001
+                results.append((it, e))
 
-            tb = traceback.format_exc()
-            termcolor.cprint("Exception while shopping item:", color="red")
-            print(tb, file=sys.stderr)
-            failed.append(f"{it['name']}: {res}")
-            provider.mark_failed(it["id"], f"exception: {res}\n{tb}")
-          else:
-            outcome = res
-            if outcome["type"] == "added":
-              r = outcome["result"]
-              added.append(r)
-              total_cents += r["price_cents"]
-            elif outcome["type"] == "not_found":
-              not_found.append(outcome["result"])
+          async with asyncio.TaskGroup() as tg:
+            for it in items:
+              tg.create_task(run_one(it))
+
+          for it, res in results:
+            if isinstance(res, Exception):
+              import traceback
+              import sys
+
+              tb = traceback.format_exc()
+              termcolor.cprint("Exception while shopping item:", color="red")
+              print(tb, file=sys.stderr)
+              failed.append(f"{it['name']}: {res}")
+              provider.mark_failed(it["id"], f"exception: {res}\n{tb}")
             else:
-              failed.append(outcome["error"])
+              outcome = res
+              if outcome["type"] == "added":
+                r = outcome["result"]
+                added.append(r)
+                total_cents += r["price_cents"]
+              elif outcome["type"] == "not_found":
+                not_found.append(outcome["result"])
+              else:
+                failed.append(outcome["error"])
+    finally:
+      if preference_coordinator is not None:
+        await preference_coordinator.stop()
+
   finally:
     ...
 

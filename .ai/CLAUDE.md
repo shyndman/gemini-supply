@@ -44,6 +44,8 @@ uv run ruff check .
 uv run ruff format .
 uv run pyright
 uv run pytest -q
+# If deps change, regenerate uv.lock
+uv pip compile pyproject.toml --upgrade
 ```
 
 ### Coding Guidelines (Repo)
@@ -60,7 +62,8 @@ uv run pytest -q
 - Terminal output is serialized across agents (reasoning + inline screenshots) — no disk logging
 - Normalized coordinates (1000×1000) denormalized per viewport
 - Custom tools return TypedDicts, registered via `FunctionDeclaration.from_callable()`
-  
+- Product preference system lives in `src/gemini_supply/preferences/` (normalizer, store, Telegram bridge)
+- Telegram reminders are single-threaded; messenger queues human prompts one at a time
 
 ## Environment
 
@@ -71,3 +74,7 @@ uv run pytest -q
   - `home_assistant.url`, `home_assistant.token`
   - `postal_code`
   - `concurrency`
+  - `preferences.file`: path to preference YAML store
+  - `preferences.normalizer_model`, `preferences.normalizer_api_base_url`, `preferences.normalizer_api_key`
+  - `preferences.telegram.bot_token`, `preferences.telegram.chat_id`, `preferences.telegram.nag_minutes`
+- Telegram bot token and chat ID are secrets; never commit them

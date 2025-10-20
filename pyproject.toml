@@ -12,8 +12,11 @@ dependencies = [
     "camoufox[geoip]>=0.4.11",
     "clypi>=1.8.1",
     "google-genai>=1.40.0",
+    "httpx>=0.28.1",
     "playwright==1.52.0",
     "pydantic==2.11.4",
+    "pydantic-ai>=1.1.0",
+    "python-telegram-bot>=21.6",
     "pytest>=8.4.2",
     "pytest-asyncio>=0.24.0",
     "pytest-mock>=3.14.0",
@@ -40,3 +43,11 @@ extend-select = [
   "ANN401", # any-type
   "PYI032", # any-eq-ne-annotation
 ]
+
+[tool.pyright]
+reportUnknownMemberAccess = "error"
+reportUnknownVariableType = "error"
+reportUnknownArgumentType = "error"
+reportUnknownParameterType = "error"
+venvPath = "."
+venv = ".venv"

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
-from typing import TypedDict
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from .types import (
   ItemAddedResult,
@@ -29,6 +29,112 @@ class ShoppingListProvider(Protocol):
   def send_summary(self, summary: ShoppingSummary) -> None: ...
 
 
+class YAMLShoppingListItemModel(BaseModel):
+  model_config = ConfigDict(extra="allow", validate_assignment=True)
+
+  id: str | None = None
+  name: str = ""
+  status: ItemStatus = ItemStatus.NEEDS_ACTION
+  tags: list[str] = Field(default_factory=list)
+  explanation: str | None = None
+  price_text: str | None = None
+  price_cents: int | None = None
+  url: str | None = None
+  quantity: int | None = None
+  error: str | None = None
+
+  @field_validator("id", mode="before")
+  @classmethod
+  def _coerce_optional_str(cls, value: object) -> str | None:
+    if value is None:
+      return None
+    return str(value)
+
+  @field_validator("name", mode="before")
+  @classmethod
+  def _coerce_name(cls, value: object) -> str:
+    if value is None:
+      return ""
+    return str(value)
+
+  @field_validator("tags", mode="before")
+  @classmethod
+  def _coerce_tags(cls, value: object) -> list[str]:
+    if value is None:
+      return []
+    if isinstance(value, list):
+      return [str(item) for item in cast(list[object], value)]
+    if isinstance(value, str):
+      return [value]
+    return []
+
+  @field_validator("status", mode="before")
+  @classmethod
+  def _coerce_status(cls, value: object) -> ItemStatus:
+    if isinstance(value, ItemStatus):
+      return value
+    if isinstance(value, str):
+      try:
+        return ItemStatus(value)
+      except ValueError:
+        return ItemStatus.NEEDS_ACTION
+    return ItemStatus.NEEDS_ACTION
+
+  @property
+  def resolved_id(self) -> str:
+    return self.id or self.name or ""
+
+
+class YAMLShoppingListDocumentModel(BaseModel):
+  model_config = ConfigDict(extra="allow", validate_assignment=True)
+
+  @staticmethod
+  def _empty_items() -> list[YAMLShoppingListItemModel]:
+    return []
+
+  items: list[YAMLShoppingListItemModel] = Field(default_factory=_empty_items)
+
+  @field_validator("items", mode="before")
+  @classmethod
+  def _coerce_items(cls, value: object) -> list[dict[str, object]]:
+    if value is None:
+      return []
+    if isinstance(value, list):
+      typed_items: list[dict[str, object]] = []
+      for item in cast(list[object], value):
+        if isinstance(item, dict):
+          typed_items.append(cast(dict[str, object], item))
+      return typed_items
+    return []
+
+
+class HomeAssistantItemModel(BaseModel):
+  model_config = ConfigDict(extra="allow", validate_assignment=True)
+
+  id: str = ""
+  name: str = ""
+  complete: bool = False
+
+  @field_validator("id", mode="before")
+  @classmethod
+  def _coerce_id(cls, value: object) -> str:
+    if value is None:
+      return ""
+    return str(value)
+
+  @field_validator("name", mode="before")
+  @classmethod
+  def _coerce_name(cls, value: object) -> str:
+    if value is None:
+      return ""
+    return str(value)
+
+  @field_validator("complete", mode="before")
+  @classmethod
+  def _coerce_complete(cls, value: object) -> bool:
+    return bool(value)
+
+
 @dataclass
 class YAMLShoppingListProvider:
   path: Path
@@ -36,78 +142,62 @@ class YAMLShoppingListProvider:
   def get_uncompleted_items(self) -> list[ShoppingListItem]:
     data = self._read()
     items: list[ShoppingListItem] = []
-    for raw in data["items"]:
-      status = str(raw.get("status", ItemStatus.NEEDS_ACTION.value))
-      if status == ItemStatus.NEEDS_ACTION.value:
-        items.append(
-          ShoppingListItem(
-            id=str(raw.get("id", raw.get("name", ""))),
-            name=str(raw.get("name", "")),
-            status=ItemStatus.NEEDS_ACTION,
-          )
+    for raw in data.items:
+      if raw.status != ItemStatus.NEEDS_ACTION:
+        continue
+      items.append(
+        ShoppingListItem(
+          id=raw.resolved_id,
+          name=raw.name,
+          status=ItemStatus.NEEDS_ACTION,
         )
+      )
     return items
 
   def mark_completed(self, item_id: str, result: ItemAddedResult) -> None:
     data = self._read()
-    for raw in data["items"]:
-      if str(raw.get("id", raw.get("name", ""))) == item_id:
-        raw["status"] = ItemStatus.COMPLETED.value
-        raw["price_text"] = result["price_text"]
-        raw["price_cents"] = result["price_cents"]
-        raw["url"] = result["url"]
-        raw["quantity"] = result["quantity"]
+    for raw in data.items:
+      if raw.resolved_id == item_id:
+        raw.status = ItemStatus.COMPLETED
+        raw.price_text = result["price_text"]
+        raw.price_cents = result["price_cents"]
+        raw.url = result["url"]
+        raw.quantity = result["quantity"]
         break
     self._write(data)
 
   def mark_not_found(self, item_id: str, result: ItemNotFoundResult) -> None:
     data = self._read()
-    for raw in data["items"]:
-      if str(raw.get("id", raw.get("name", ""))) == item_id:
-        # Add a #404 tag and explanation
-        tags_val = raw.get("tags", [])
-        tags: list[str]
-        if isinstance(tags_val, list):
-          tags = [str(x) for x in tags_val]
-        else:
-          tags = []
+    for raw in data.items:
+      if raw.resolved_id == item_id:
+        tags = list(raw.tags)
         if "#404" not in tags:
           tags.append("#404")
-        raw["tags"] = tags
-        raw["explanation"] = result["explanation"]
+        raw.tags = tags
+        raw.explanation = result["explanation"]
         break
     self._write(data)
 
   def mark_out_of_stock(self, item_id: str) -> None:
     data = self._read()
-    for raw in data["items"]:
-      if str(raw.get("id", raw.get("name", ""))) == item_id:
-        tags_val = raw.get("tags", [])
-        tags: list[str]
-        if isinstance(tags_val, list):
-          tags = [str(x) for x in tags_val]
-        else:
-          tags = []
+    for raw in data.items:
+      if raw.resolved_id == item_id:
+        tags = list(raw.tags)
         if "#out_of_stock" not in tags:
           tags.append("#out_of_stock")
-        raw["tags"] = tags
+        raw.tags = tags
         break
     self._write(data)
 
   def mark_failed(self, item_id: str, error: str) -> None:
     data = self._read()
-    for raw in data["items"]:
-      if str(raw.get("id", raw.get("name", ""))) == item_id:
-        tags_val = raw.get("tags", [])
-        tags: list[str]
-        if isinstance(tags_val, list):
-          tags = [str(x) for x in tags_val]
-        else:
-          tags = []
+    for raw in data.items:
+      if raw.resolved_id == item_id:
+        tags = list(raw.tags)
         if "#failed" not in tags:
           tags.append("#failed")
-        raw["tags"] = tags
-        raw["error"] = error
+        raw.tags = tags
+        raw.error = error
         break
     self._write(data)
 
@@ -130,10 +220,7 @@ class YAMLShoppingListProvider:
 
   # --- Internal helpers ---
 
-  class _YAMLData(TypedDict):
-    items: list[dict[str, object]]
-
-  def _read(self) -> _YAMLData:
+  def _read(self) -> YAMLShoppingListDocumentModel:
     # Lazy import to avoid hard dependency if user hasn't installed YAML yet.
     try:
       import yaml  # type: ignore[reportMissingImports]
@@ -143,18 +230,21 @@ class YAMLShoppingListProvider:
       ) from e
 
     if not self.path.exists():
-      return YAMLShoppingListProvider._YAMLData(items=[])
+      return YAMLShoppingListDocumentModel()
     raw_text = self.path.read_text(encoding="utf-8")
-    loaded = yaml.safe_load(raw_text) or {}
-    if not isinstance(loaded, dict):
-      raise ValueError("Invalid YAML format: expected a mapping at the top level")
-    # Coerce to YAMLData
-    items_val = loaded.get("items", [])
-    if not isinstance(items_val, list):
-      items_val = []
-    return YAMLShoppingListProvider._YAMLData(items=items_val)
+    parsed = yaml.safe_load(raw_text)
+    if parsed is None:
+      parsed_mapping: dict[str, object] = {}
+    else:
+      if not isinstance(parsed, dict):
+        raise ValueError("Invalid YAML format: expected a mapping at the top level")
+      parsed_mapping = cast(dict[str, object], parsed)
+    try:
+      return YAMLShoppingListDocumentModel.model_validate(parsed_mapping)
+    except ValidationError as exc:
+      raise ValueError("Invalid YAML format: unable to parse items") from exc
 
-  def _write(self, data: _YAMLData) -> None:
+  def _write(self, data: YAMLShoppingListDocumentModel) -> None:
     try:
       import yaml  # type: ignore[reportMissingImports]
     except Exception as e:  # noqa: BLE001
@@ -164,7 +254,12 @@ class YAMLShoppingListProvider:
     parent = self.path.parent
     parent.mkdir(parents=True, exist_ok=True)
     with self.path.open("w", encoding="utf-8") as fh:
-      yaml.safe_dump({"items": data["items"]}, fh, sort_keys=False, allow_unicode=True)
+      yaml.safe_dump(
+        data.model_dump(mode="python", exclude_none=True),
+        fh,
+        sort_keys=False,
+        allow_unicode=True,
+      )
 
 
 # --- Home Assistant provider ---
@@ -192,9 +287,9 @@ class HomeAssistantShoppingListProvider:
     ret: list[ShoppingListItem] = []
     seen: set[str] = set()
     for it in items:
-      if bool(it.get("complete")):
+      if it.complete:
         continue
-      raw_name = str(it.get("name", "")).strip()
+      raw_name = it.name.strip()
       if not raw_name:
         continue
       # Skip retriable items if requested
@@ -204,10 +299,12 @@ class HomeAssistantShoppingListProvider:
       norm = base.strip().lower()
       if norm in seen:
         # Tag as duplicate and skip processing
-        self._tag_dupe(it["id"], raw_name)
+        self._tag_dupe(it.id, raw_name)
         continue
       seen.add(norm)
-      ret.append(ShoppingListItem(id=str(it["id"]), name=base, status=ItemStatus.NEEDS_ACTION))
+      if not it.id:
+        continue
+      ret.append(ShoppingListItem(id=it.id, name=base, status=ItemStatus.NEEDS_ACTION))
     return ret
 
   def mark_completed(self, item_id: str, result: ItemAddedResult) -> None:
@@ -268,7 +365,7 @@ class HomeAssistantShoppingListProvider:
       "Content-Type": "application/json",
     }
 
-  def _get_items(self) -> list[dict[str, object]]:
+  def _get_items(self) -> list[HomeAssistantItemModel]:
     import json
     import urllib.request
     from urllib.error import HTTPError, URLError
@@ -277,18 +374,18 @@ class HomeAssistantShoppingListProvider:
     req = urllib.request.Request(url, headers=self._headers(), method="GET")
     try:
       with urllib.request.urlopen(req, timeout=5) as resp:  # type: ignore[reportUnknownMemberType]
-        data = json.loads(resp.read().decode("utf-8"))
-        if not isinstance(data, list):
+        raw_data = json.loads(resp.read().decode("utf-8"))
+        if not isinstance(raw_data, list):
           return []
-        # Coerce fields we care about
-        out: list[dict[str, object]] = []
-        for it in data:
-          if not isinstance(it, dict):
+        parsed: list[HomeAssistantItemModel] = []
+        for entry in cast(list[object], raw_data):
+          if not isinstance(entry, dict):
             continue
-          out.append(
-            {"id": it.get("id"), "name": it.get("name"), "complete": bool(it.get("complete"))}
-          )
-        return out
+          try:
+            parsed.append(HomeAssistantItemModel.model_validate(cast(dict[str, object], entry)))
+          except ValidationError:
+            continue
+        return parsed
     except HTTPError as e:
       if e.code in (401, 403):
         raise RuntimeError(f"Home Assistant auth failed: HTTP {e.code}") from e
@@ -299,8 +396,8 @@ class HomeAssistantShoppingListProvider:
   def _get_item_name(self, item_id: str) -> str:
     items = self._get_items()
     for it in items:
-      if str(it.get("id")) == item_id:
-        return str(it.get("name", ""))
+      if it.id == item_id:
+        return it.name
     return ""
 
   def _update_item(self, item_id: str, fields: dict[str, object]) -> None:
@@ -357,10 +454,12 @@ class HomeAssistantShoppingListProvider:
       return base
     return f"{base} {' '.join(ordered)}"
 
-  def _tag_dupe(self, item_id: object, current_name: str) -> None:
-    base = self._strip_tags(str(current_name))
+  def _tag_dupe(self, item_id: str, current_name: str) -> None:
+    if not item_id:
+      return
+    base = self._strip_tags(current_name)
     tagged = self._apply_tags(base, {"#dupe"})
-    self._update_item(str(item_id), {"name": tagged, "complete": False})
+    self._update_item(item_id, {"name": tagged, "complete": False})
     self._duplicates.append(base)
 
   def _parse_quantity(self, name: str) -> tuple[str, int]:

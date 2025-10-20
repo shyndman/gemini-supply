@@ -13,31 +13,45 @@
 # limitations under the License.
 import asyncio
 import os
-from typing import Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Callable, Literal, TypedDict, TypeAlias, cast
 
+import google.genai
 import termcolor
-from google import genai
-from google.genai import types
 from google.genai.types import (
   Candidate,
+  ComputerUse,
   Content,
+  Environment,
   FinishReason,
+  FunctionCall,
+  FunctionDeclaration,
   FunctionResponse,
+  FunctionResponseBlob,
+  FunctionResponsePart,
   GenerateContentConfig,
+  GenerateContentResponse,
   Part,
+  Tool,
 )
 from rich.console import Console
 from rich.table import Table
 
+if TYPE_CHECKING:
+  from google.genai._api_client import BaseApiClient as _BaseApiClient
+else:
+  _BaseApiClient = Any
+
 from gemini_supply.computers import Computer, EnvState
 from gemini_supply.display import display_image_kitty
-from gemini_supply.tty_logger import TTYLogger
 from gemini_supply.grocery.types import (
   ItemAddedResult,
   ItemAddedResultModel,
   ItemNotFoundResult,
   ItemNotFoundResultModel,
 )
+from gemini_supply.preferences.service import PreferenceItemSession
+from gemini_supply.preferences.types import ProductChoiceResult
+from gemini_supply.tty_logger import TTYLogger
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
 PREDEFINED_COMPUTER_USE_FUNCTIONS = [
@@ -75,7 +89,11 @@ class MultiplyResult(TypedDict):
 
 # Built-in Computer Use tools return EnvState.
 # Custom provided functions return typed dictionaries.
-FunctionResponseT = EnvState | MultiplyResult | ItemAddedResult | ItemNotFoundResult
+FunctionResponseT = (
+  EnvState | MultiplyResult | ItemAddedResult | ItemNotFoundResult | ProductChoiceResult
+)
+
+CustomFunctionCallable: TypeAlias = Callable[..., FunctionResponseT]
 
 
 def multiply_numbers(x: float, y: float) -> MultiplyResult:
@@ -103,6 +121,24 @@ def report_item_not_found(item_name: str, explanation: str) -> ItemNotFoundResul
   return model.to_typed()
 
 
+def request_preference_choice(
+  canonical_key: str,
+  category_label: str,
+  options: list[dict[str, object]],
+) -> ProductChoiceResult:
+  """Request human input to choose a preferred product.
+
+  Args:
+    canonical_key: Normalized category slug (e.g., "milk").
+    category_label: Human-readable category label (e.g., "Milk").
+    options: Up to 10 dictionaries containing `title`, optional `url`, and optional `description`.
+
+  Returns:
+    A mapping describing the user's decision (selected index or alternate text).
+  """
+  return ProductChoiceResult(decision="skip", selected_index=None, selected_option=None)
+
+
 class BrowserAgent:
   def __init__(
     self,
@@ -110,9 +146,10 @@ class BrowserAgent:
     query: str,
     model_name: str,
     verbose: bool = True,
-    client: genai.Client | None = None,
+    client: google.genai.Client | None = None,
     logger: TTYLogger | None = None,
     output_label: str | None = None,
+    preference_session: PreferenceItemSession | None = None,
   ):
     self._browser_computer = browser_computer
     self._query = query
@@ -122,9 +159,10 @@ class BrowserAgent:
     self._turn_index: int = 0
     self._logger: TTYLogger | None = logger
     self._output_label: str | None = output_label
-    self._client: genai.Client = client or genai.Client(
+    self._client: google.genai.Client = client or google.genai.Client(
       api_key=os.environ.get("GEMINI_API_KEY"),
     )
+    self._preference_session = preference_session
     self._contents: list[Content] = [
       Content(
         role="user",
@@ -138,18 +176,25 @@ class BrowserAgent:
     excluded_predefined_functions: list[str] = []
 
     self._excluded_predefined_functions = excluded_predefined_functions
-    self._custom_function_callables = [
+    self._custom_function_callables: list[CustomFunctionCallable] = [
       multiply_numbers,
       report_item_added,
       report_item_not_found,
+      request_preference_choice,
     ]
     self._generate_content_config: GenerateContentConfig | None = None
 
   def _ensure_client_and_config(self) -> None:
     if self._generate_content_config is None:
       # Build function declarations now that the client exists
-      custom_functions: list[types.FunctionDeclaration] = [
-        types.FunctionDeclaration.from_callable(client=self._client, callable=fn)  # type: ignore[arg-type]
+      api_client = getattr(self._client, "_api_client", None)
+      if api_client is None:
+        raise RuntimeError("Gemini client missing _api_client attribute")
+      custom_functions: list[FunctionDeclaration] = [
+        FunctionDeclaration.from_callable(
+          client=cast(_BaseApiClient, api_client),
+          callable=cast(Callable[..., Any], fn),
+        )
         for fn in self._custom_function_callables
       ]
       self._generate_content_config = GenerateContentConfig(
@@ -158,17 +203,17 @@ class BrowserAgent:
         top_k=40,
         max_output_tokens=8192,
         tools=[
-          types.Tool(
-            computer_use=types.ComputerUse(
-              environment=types.Environment.ENVIRONMENT_BROWSER,
+          Tool(
+            computer_use=ComputerUse(
+              environment=Environment.ENVIRONMENT_BROWSER,
               excluded_predefined_functions=self._excluded_predefined_functions,
             ),
           ),
-          types.Tool(function_declarations=custom_functions),
+          Tool(function_declarations=custom_functions),
         ],
       )
 
-  async def handle_action(self, action: types.FunctionCall) -> FunctionResponseT:
+  async def handle_action(self, action: FunctionCall) -> FunctionResponseT:
     """Handles the action and returns the environment state."""
     assert action.args is not None, f"Action {action.name} missing required args"
 
@@ -278,12 +323,39 @@ class BrowserAgent:
         }
         return result
 
+      case name if name == request_preference_choice.__name__:
+        if self._preference_session is None:
+          raise ValueError("Preference session unavailable for preference choice request.")
+        opts_raw = action.args.get("options")
+        if not isinstance(opts_raw, list):
+          raise ValueError("request_preference_choice requires an 'options' list.")
+        choice = await self._preference_session.request_choice(opts_raw)  # type: ignore[arg-type]
+        self.last_custom_tool_call = {
+          "name": request_preference_choice.__name__,
+          "payload": choice,
+        }
+        return choice
+
       case _:
         raise ValueError(f"Unsupported function: {action.name}")
 
+  def _generate_content_sync(
+    self,
+    *,
+    model: str,
+    contents: list[Content],
+    config: GenerateContentConfig,
+  ) -> GenerateContentResponse:
+    response = self._client.models.generate_content(
+      model=model,
+      contents=contents,
+      config=config,
+    )
+    return cast(GenerateContentResponse, response)
+
   async def get_model_response(
     self, max_retries: int = 5, base_delay_s: int = 1
-  ) -> types.GenerateContentResponse:
+  ) -> GenerateContentResponse:
     # Lazy init for client/config to avoid destructor issues when unused
     self._ensure_client_and_config()
     for attempt in range(max_retries):
@@ -292,7 +364,7 @@ class BrowserAgent:
         assert self._generate_content_config is not None
         # Run the synchronous SDK call in a worker thread so we don't block the event loop
         response = await asyncio.to_thread(
-          self._client.models.generate_content,
+          self._generate_content_sync,
           model=self._model_name,
           contents=self._contents,
           config=self._generate_content_config,
@@ -330,11 +402,11 @@ class BrowserAgent:
         text.append(part.text)
     return " ".join(text) or None
 
-  def extract_function_calls(self, candidate: Candidate) -> list[types.FunctionCall]:
+  def extract_function_calls(self, candidate: Candidate) -> list[FunctionCall]:
     """Extracts the function call from the candidate."""
     if not candidate.content or not candidate.content.parts:
       return []
-    ret: list[types.FunctionCall] = []
+    ret: list[FunctionCall] = []
     for part in candidate.content.parts:
       if part.function_call:
         ret.append(part.function_call)
@@ -452,10 +524,8 @@ class BrowserAgent:
               **extra_fr_fields,
             },
             parts=[
-              types.FunctionResponsePart(
-                inline_data=types.FunctionResponseBlob(
-                  mime_type="image/png", data=env_state.screenshot
-                )
+              FunctionResponsePart(
+                inline_data=FunctionResponseBlob(mime_type="image/png", data=env_state.screenshot)
               )
             ],
           )
@@ -540,7 +610,7 @@ class BrowserAgent:
 
   class _CustomToolCall(TypedDict):
     name: str
-    payload: ItemAddedResult | ItemNotFoundResult | MultiplyResult
+    payload: ItemAddedResult | ItemNotFoundResult | MultiplyResult | ProductChoiceResult
 
   last_custom_tool_call: _CustomToolCall | None = None
 

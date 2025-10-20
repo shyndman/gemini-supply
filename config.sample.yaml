@@ -15,6 +15,17 @@ postal_code: "M5V 1J1"  # used for delivery prompt on metro.ca
 # Parallelism
 concurrency: 3  # number of items to process in parallel (tabs)
 
+# Product preferences
+preferences:
+  file: "~/.config/gemini-supply/preferences.yaml"  # where canonical mappings are stored
+  normalizer_model: "qwen3:1.7b"  # OpenAI-compatible model name used for normalization
+  normalizer_api_base_url: "http://ollama-nvidia.don/v1"  # OpenAI-compatible endpoint (optional)
+  normalizer_api_key: ""  # optional key when hitting remote provider; leave blank for local Ollama
+  telegram:
+    bot_token: "YOUR_TELEGRAM_BOT_TOKEN"
+    chat_id: -123456789
+    nag_minutes: 30  # reminder cadence; defaults to 30 if omitted
+
 # Notes:
 # - When provider is home_assistant, the CLI does not require --shopping-list.
 # - You can omit --postal-code if postal_code is set here.
