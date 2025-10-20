@@ -1,16 +1,5 @@
-# Copyright 2025 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+from __future__ import annotations
+
 import asyncio
 from datetime import timedelta
 from pathlib import Path
@@ -20,8 +9,8 @@ from clypi import Command, arg
 from typing_extensions import override
 
 from gemini_supply.computers import CamoufoxHost
-from gemini_supply.grocery_main import run_shopping
-from gemini_supply.profile import resolve_profile_dir, resolve_camoufox_exec
+from gemini_supply.shopping import run_shopping
+from gemini_supply.profile import resolve_camoufox_exec, resolve_profile_dir
 
 PLAYWRIGHT_SCREEN_SIZE = (1440, 900)
 
@@ -53,7 +42,6 @@ class Shop(Command):
 
   @override
   async def run(self) -> None:
-    # shop delegates profile/executable resolution to grocery_main
     await run_shopping(
       list_path=self.shopping_list.expanduser() if self.shopping_list else None,
       model_name=self.model,
@@ -88,7 +76,6 @@ class AuthSetup(Command):
       executable_path=camou_exec,
       headless=False,
     ) as host:
-      # Acquire a tab so the window opens, then wait for user
       tab = await host.new_tab()
       try:
         print(
@@ -104,17 +91,19 @@ class AuthSetup(Command):
 
 
 class Cli(Command):
-  """Gemini Supply CLI"""
+  """Gemini Supply CLI."""
 
   subcommand: Shop | AuthSetup
 
 
-def main() -> int:
+def run() -> int:
   try:
     cmd = Cli.parse()
     cmd.start()
     return 0
   except KeyboardInterrupt:
-    # Graceful exit on Ctrl+C without stack trace
     print("\nInterrupted by user (Ctrl+C). Exiting cleanly.")
     return 130
+
+
+__all__ = ["run", "Cli", "Shop", "AuthSetup"]
