@@ -3,16 +3,41 @@ from __future__ import annotations
 import asyncio
 from datetime import timedelta
 from pathlib import Path
+from typing import Callable, Literal, Sequence
 
 import clypi.parsers as cp
 from clypi import Command, arg
 from typing_extensions import override
 
 from gemini_supply.computers import CamoufoxHost
-from gemini_supply.shopping import run_shopping
 from gemini_supply.profile import resolve_camoufox_exec, resolve_profile_dir
+from gemini_supply.shopping import run_shopping
 
 PLAYWRIGHT_SCREEN_SIZE = (1440, 900)
+
+
+def _parse_concurrency(raw: str) -> int | Literal["len"]:
+  value = raw.strip().lower()
+  if value == "len":
+    return "len"
+  try:
+    parsed = int(value)
+  except ValueError as exc:
+    raise ValueError("concurrency must be a non-negative integer or 'len'") from exc
+  if parsed < 0:
+    raise ValueError("concurrency must be a non-negative integer or 'len'")
+  return parsed
+
+
+def _concurrency_parser() -> Callable[[Sequence[str] | str], int | Literal["len"]]:
+  def _parser(raw: Sequence[str] | str) -> int | Literal["len"]:
+    if isinstance(raw, str):
+      return _parse_concurrency(raw)
+    if not raw:
+      raise ValueError("concurrency value missing")
+    return _parse_concurrency(raw[0])
+
+  return _parser
 
 
 class Shop(Command):
@@ -28,9 +53,10 @@ class Shop(Command):
   )
   max_turns: int = arg(40, help="Max agent turns per item")
   postal_code: str | None = arg(None, help="Postal code to use; may also be set in config")
-  concurrency: int = arg(
+  concurrency: int | Literal["len"] = arg(
     0,
-    help="Number of items to process in parallel (tabs). 0 = use config or default 1",
+    help="Number of items to process in parallel (tabs). Use 'len' to match item count (max 20).",
+    parser=_concurrency_parser(),
   )
   no_retry: bool = arg(
     False,

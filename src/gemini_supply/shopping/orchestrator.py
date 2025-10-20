@@ -114,6 +114,48 @@ class ShoppingResults:
 
 
 @dataclass(slots=True)
+class ConcurrencySetting:
+  requested: int | Literal["len"] | None
+  config_fallback: int | None
+
+  @classmethod
+  def from_inputs(
+    cls, cli_value: int | Literal["len"] | None, config_value: int | None
+  ) -> ConcurrencySetting:
+    return cls(requested=cli_value, config_fallback=config_value)
+
+  def resolve(self, items: Sequence[ShoppingListItem], provider: ShoppingListProvider) -> int:
+    base = self._base_value()
+    effective = self._materialize_len(base, len(items))
+    return self._apply_provider_caps(effective, provider)
+
+  def _base_value(self) -> int | Literal["len"]:
+    if self.requested == "len":
+      return "len"
+    if isinstance(self.requested, int) and self.requested > 0:
+      return self.requested
+    if self.config_fallback is not None and self.config_fallback > 0:
+      return self.config_fallback
+    return 1
+
+  @staticmethod
+  def _materialize_len(base: int | Literal["len"], item_count: int) -> int:
+    if base == "len":
+      return 1 if item_count <= 0 else min(item_count, 20)
+    return base
+
+  @staticmethod
+  def _apply_provider_caps(value: int, provider: ShoppingListProvider) -> int:
+    if isinstance(provider, YAMLShoppingListProvider) and value > 1:
+      termcolor.cprint(
+        "YAML provider does not support parallel writes; forcing concurrency=1.",
+        color="yellow",
+      )
+      return 1
+    return value
+
+
+@dataclass(slots=True)
 class ShoppingSettings:
   model_name: str
   highlight_mouse: bool
@@ -121,7 +163,7 @@ class ShoppingSettings:
   time_budget: timedelta
   max_turns: int
   postal_code: str
-  concurrency: int
+  concurrency: ConcurrencySetting
 
 
 async def run_shopping(
@@ -135,7 +177,7 @@ async def run_shopping(
   postal_code: str | None,
   no_retry: bool = False,
   config_path: Path | None = None,
-  concurrency: int | None = None,
+  concurrency: int | Literal["len"] | None = None,
 ) -> int:
   config = load_config(config_path or DEFAULT_CONFIG_PATH)
   resolved_postal = _resolve_postal_code(postal_code, config)
@@ -143,8 +185,10 @@ async def run_shopping(
   resolved_screen_size = (
     screen_size if isinstance(screen_size, ScreenSize) else ScreenSize(*screen_size)
   )
-  resolved_concurrency = _resolve_concurrency(concurrency, config)
-  effective_concurrency = _cap_concurrency_for_provider(provider, resolved_concurrency)
+  concurrency_setting = ConcurrencySetting.from_inputs(
+    cli_value=concurrency,
+    config_value=config.concurrency if config else None,
+  )
 
   settings = ShoppingSettings(
     model_name=model_name,
@@ -153,7 +197,7 @@ async def run_shopping(
     time_budget=time_budget,
     max_turns=max_turns,
     postal_code=resolved_postal,
-    concurrency=effective_concurrency,
+    concurrency=concurrency_setting,
   )
 
   logger = TTYLogger()
@@ -192,24 +236,6 @@ def _build_provider(
   if list_path is None:
     raise ValueError("--shopping-list is required for YAML provider")
   return YAMLShoppingListProvider(path=list_path)
-
-
-def _resolve_concurrency(value: int | None, config: AppConfig | None) -> int:
-  if value is not None and value > 0:
-    return value
-  if config is not None and config.concurrency is not None:
-    return config.concurrency
-  return 1
-
-
-def _cap_concurrency_for_provider(provider: ShoppingListProvider, requested: int) -> int:
-  if isinstance(provider, YAMLShoppingListProvider) and requested > 1:
-    termcolor.cprint(
-      "YAML provider does not support parallel writes; forcing concurrency=1.",
-      color="yellow",
-    )
-    return 1
-  return requested
 
 
 async def _setup_preferences(pref_cfg: PreferencesConfig | None) -> PreferenceResources:
@@ -258,6 +284,8 @@ async def _run_shopping_flow(
     termcolor.cprint("No uncompleted items found.", color="yellow")
     return ShoppingResults()
 
+  effective_concurrency = settings.concurrency.resolve(items, provider)
+
   env_h = os.environ.get("PLAYWRIGHT_HEADLESS", "").strip().lower()
   headless = env_h not in ("0", "false", "no")
 
@@ -270,7 +298,7 @@ async def _run_shopping_flow(
     executable_path=camoufox_exec,
     headless=headless,
   ) as host:
-    if settings.concurrency <= 1:
+    if effective_concurrency <= 1:
       return await _run_sequential(
         host=host,
         items=items,
@@ -286,6 +314,7 @@ async def _run_shopping_flow(
       settings=settings,
       logger=logger,
       preferences=preferences,
+      concurrency=effective_concurrency,
     )
 
 
@@ -324,9 +353,10 @@ async def _run_concurrent(
   settings: ShoppingSettings,
   logger: TTYLogger,
   preferences: PreferenceResources,
+  concurrency: int,
 ) -> ShoppingResults:
   results = ShoppingResults()
-  sem = asyncio.Semaphore(settings.concurrency)
+  sem = asyncio.Semaphore(concurrency)
   collected: list[tuple[ShoppingListItem, Outcome]] = []
 
   async def run_one(item: ShoppingListItem) -> None:
