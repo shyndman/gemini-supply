@@ -25,6 +25,14 @@ def enable_headless_mode(monkeypatch: pytest.MonkeyPatch) -> None:
   monkeypatch.setenv("PLAYWRIGHT_HEADLESS", "1")
 
 
+@pytest.fixture(autouse=True)
+def bypass_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+  async def _always_authenticated(self, page) -> bool:  # type: ignore[unused-argument]
+    return True
+
+  monkeypatch.setattr(CamoufoxHost, "is_authenticated", _always_authenticated, raising=False)  # type: ignore
+
+
 @pytest.mark.asyncio
 async def test_tab_context_manager(tmp_path: Path) -> None:
   """Tab can be created from host and used as a context manager."""

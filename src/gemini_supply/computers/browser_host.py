@@ -105,7 +105,6 @@ class CamoufoxHost:
         headless = env_val not in ("0", "false", "no") and bool(env_val or True)
       else:
         headless = self._headless
-
       self._context = await p.firefox.launch_persistent_context(
         user_data_dir=str(self._user_data_dir),
         executable_path=str(self._executable_path) if self._executable_path else None,
