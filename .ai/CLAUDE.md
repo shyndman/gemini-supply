@@ -52,7 +52,7 @@ uv pip compile pyproject.toml --upgrade
 
 - Modern Python only (3.13+); use `A | B` and `A | None` instead of `Union`/`Optional`.
 - If you create a mapping, it must be a `TypedDict`. Never use `Any`.
-- Do not use dynamic attribute access like `getattr`, `hasattr`, or similar reflection. Prefer explicit attributes with clear `None` checks and narrow them before use.
+- **FORBIDDEN**: `getattr`, `hasattr`, and all dynamic attribute access/reflection are strictly prohibited. Use explicit attributes with clear `None` checks and narrow them before use.
 
 ## Notes
 
