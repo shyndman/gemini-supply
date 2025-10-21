@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import asyncio
 from datetime import timedelta
 from pathlib import Path
 from typing import Callable, Literal, Sequence
@@ -9,9 +7,10 @@ import clypi.parsers as cp
 from clypi import Command, arg
 from typing_extensions import override
 
-from gemini_supply.computers import CamoufoxHost
-from gemini_supply.profile import resolve_camoufox_exec, resolve_profile_dir
+from gemini_supply.computers import ScreenSize
+from gemini_supply.config import DEFAULT_CONFIG_PATH, load_config
 from gemini_supply.shopping import run_shopping
+from gemini_supply.shopping.models import ConcurrencySetting, ShoppingSettings
 
 PLAYWRIGHT_SCREEN_SIZE = (1440, 900)
 
@@ -68,58 +67,39 @@ class Shop(Command):
 
   @override
   async def run(self) -> None:
-    await run_shopping(
-      list_path=self.shopping_list.expanduser() if self.shopping_list else None,
+    config_path = self.config.expanduser() if self.config else DEFAULT_CONFIG_PATH
+    config = load_config(config_path)
+    postal_code = self.postal_code or (
+      config.postal_code if config and config.postal_code else None
+    )
+    if not postal_code:
+      raise ValueError("Postal code is required via --postal-code or config postal_code")
+    concurrency_setting = ConcurrencySetting.from_inputs(
+      cli_value=self.concurrency,
+      config_value=config.concurrency if config else None,
+    )
+    settings = ShoppingSettings(
       model_name=self.model,
       highlight_mouse=self.highlight_mouse,
-      screen_size=PLAYWRIGHT_SCREEN_SIZE,
+      screen_size=ScreenSize(*PLAYWRIGHT_SCREEN_SIZE),
       time_budget=self.time_budget,
       max_turns=self.max_turns,
-      postal_code=self.postal_code,
-      no_retry=self.no_retry,
-      config_path=self.config.expanduser() if self.config else None,
-      concurrency=self.concurrency,
+      postal_code=postal_code,
+      concurrency=concurrency_setting,
     )
-
-
-class AuthSetup(Command):
-  """Open metro.ca to authenticate using a persistent profile"""
-
-  highlight_mouse: bool = arg(False, help="Highlight mouse for debugging")
-
-  @override
-  async def run(self) -> None:
-    profile_dir = resolve_profile_dir()
-    camou_exec = resolve_camoufox_exec()
-    print(f"Using profile: {profile_dir}")
-
-    async with CamoufoxHost(
-      screen_size=PLAYWRIGHT_SCREEN_SIZE,
-      user_data_dir=profile_dir,
-      initial_url="https://www.metro.ca",
-      highlight_mouse=self.highlight_mouse,
-      enforce_restrictions=False,
-      executable_path=camou_exec,
-      headless=False,
-    ) as host:
-      tab = await host.new_tab()
-      try:
-        print(
-          "A browser window has opened. Please log in to metro.ca, then press Enter to finish..."
-        )
-        await asyncio.to_thread(input)
-      finally:
-        try:
-          await tab.close()
-        except Exception:
-          pass
-    print("Authentication session complete. Credentials persisted in the profile.")
+    await run_shopping(
+      list_path=self.shopping_list.expanduser() if self.shopping_list else None,
+      settings=settings,
+      no_retry=self.no_retry,
+      config=config,
+      config_path=config_path,
+    )
 
 
 class Cli(Command):
   """Gemini Supply CLI."""
 
-  subcommand: Shop | AuthSetup
+  subcommand: Shop
 
 
 def run() -> int:
@@ -132,4 +112,4 @@ def run() -> int:
     return 130
 
 
-__all__ = ["run", "Cli", "Shop", "AuthSetup"]
+__all__ = ["run", "Cli", "Shop"]

@@ -1,9 +1,11 @@
 # Sneaky Auth Prototype
 
-This document captures the design for the experimental, fully automated metro.ca authentication flow. The prototype lives in `src/gemini_supply/auth_scratch.py` and is exposed via a temporary CLI script entry. Once the flow graduates into the main CLI, both the file and this page can be retired.
+This document captures the design for the automated metro.ca authentication flow. The original
+prototype lived in `src/gemini_supply/auth_scratch.py`; the logic now powers the primary CLI, but
+these notes remain for reference.
 
 ## Goals
-- Automate the manual `auth-setup` experience by logging into metro.ca before the shopping agent starts.
+- Replace the manual login step by logging into metro.ca before the shopping agent starts.
 - Keep the agent blind to login pages and interactive elements; only deliver authenticated tabs.
 - Use Camoufox's humanization features and a local vision model to mimic human behavior and navigate authentication flows.
 

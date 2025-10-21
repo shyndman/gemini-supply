@@ -2,10 +2,21 @@ from __future__ import annotations
 
 import asyncio
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import TracebackType
 from urllib.parse import urlparse
-from typing import TYPE_CHECKING, Any, Awaitable, Literal, Protocol, TypedDict, Unpack, cast
+from typing import (
+  TYPE_CHECKING,
+  Any,
+  AsyncIterator,
+  Awaitable,
+  Literal,
+  Protocol,
+  TypedDict,
+  Unpack,
+  cast,
+)
 
 import playwright.async_api
 import termcolor
@@ -25,7 +36,7 @@ if TYPE_CHECKING:
       *,
       from_options: dict[str, Any] | None = None,
       persistent_context: Literal[True],
-      headless: bool | None = None,
+      headless: bool | Literal["virtual"] | None = None,
       **kwargs: Unpack[_CamoufoxLaunchKwargs],
     ) -> Awaitable[BrowserContext]: ...
 
@@ -34,6 +45,7 @@ else:
   from camoufox.async_api import AsyncNewBrowser as _async_camoufox_new_browser
 
 from .computer import Computer, EnvState, ScreenSize
+from .errors import AuthExpiredError
 from .keys import PLAYWRIGHT_KEY_MAP
 
 
@@ -57,7 +69,7 @@ class CamoufoxHost:
     highlight_mouse: bool = False,
     enforce_restrictions: bool = True,
     executable_path: Path | None = None,
-    headless: bool | None = None,
+    headless: bool | Literal["virtual"] | None = None,
     disable_sandbox: bool | None = None,
     browser: Literal["firefox", "chromium"] | None = None,
     camoufox_options: dict[str, Any] | None = None,
@@ -68,7 +80,7 @@ class CamoufoxHost:
     self._enforce_restrictions = enforce_restrictions
     self._executable_path = executable_path
     self._user_data_dir = user_data_dir
-    self._headless = headless
+    self._headless: bool | Literal["virtual"] | None = headless
 
     env_disable = os.environ.get("CAMOUFOX_DISABLE_SANDBOX", "").strip().lower()
     self._disable_sandbox = (
@@ -93,6 +105,7 @@ class CamoufoxHost:
     self._context: playwright.async_api.BrowserContext | None = None
     self._browser: playwright.async_api.Browser | None = None
     self._initial_page_claimed = False
+    self._restrictions_active = False
 
     # Optional Camoufox launch overrides
     self._camoufox_options = camoufox_options.copy() if camoufox_options else None
@@ -151,7 +164,14 @@ class CamoufoxHost:
       # Headless: prefer explicit flag, else env var PLAYWRIGHT_HEADLESS
       env_val = os.environ.get("PLAYWRIGHT_HEADLESS", "").strip().lower()
       if self._headless is None:
-        headless = env_val not in ("0", "false", "no") and bool(env_val or True)
+        if env_val in ("virtual", "v"):
+          headless: bool | Literal["virtual"] = "virtual"
+        elif env_val in ("0", "false", "no"):
+          headless = False
+        elif env_val:
+          headless = True
+        else:
+          headless = "virtual"
       else:
         headless = self._headless
 
@@ -178,10 +198,11 @@ class CamoufoxHost:
           }
 
         browser_launcher = getattr(p, self._browser_type)
+        bool_headless = headless if isinstance(headless, bool) else False
         context = await browser_launcher.launch_persistent_context(
           user_data_dir=str(self._user_data_dir),
           executable_path=str(self._executable_path) if self._executable_path else None,
-          headless=headless,
+          headless=bool_headless,
           viewport={"width": self._screen_size.width, "height": self._screen_size.height},
           args=launch_args or None,
           env=launch_env,
@@ -199,12 +220,15 @@ class CamoufoxHost:
     await c.add_init_script(self._banner_script())
     if self._enforce_restrictions:
       await c.route("**/*", self._route_interceptor)
+      self._restrictions_active = True
+    else:
+      self._restrictions_active = False
 
     termcolor.cprint("Camoufox host ready.", color="green")
     return self
 
   async def _launch_with_camoufox_options(
-    self, *, headless: bool
+    self, *, headless: bool | Literal["virtual"]
   ) -> playwright.async_api.BrowserContext:
     if self._browser_type != "firefox":
       raise RuntimeError("Camoufox launch options require the Firefox browser type.")
@@ -217,7 +241,7 @@ class CamoufoxHost:
     options = await loop.run_in_executor(
       None,
       lambda: camoufox_launch_options(
-        headless=headless,
+        headless=cast(Any, headless),
         executable_path=exe_path,
         **launch_kwargs,
       ),
@@ -324,6 +348,22 @@ class CamoufoxHost:
       return
 
     await route.continue_()
+
+  @asynccontextmanager
+  async def unrestricted(self) -> AsyncIterator[None]:
+    if not self._enforce_restrictions or not self._restrictions_active:
+      yield
+      return
+    context = self.context
+    await context.unroute("**/*", self._route_interceptor)
+    self._restrictions_active = False
+    try:
+      yield
+    finally:
+      try:
+        await context.route("**/*", self._route_interceptor)
+      finally:
+        self._restrictions_active = True
 
   def _banner_script(self) -> str:
     return (
@@ -520,9 +560,12 @@ class CamoufoxTab(Computer):
     return await self.current_state()
 
   async def current_state(self) -> EnvState:
-    url = self._page.url
-    screenshot = await self._page.screenshot(full_page=True)
-    return EnvState(url=url, screenshot=screenshot)
+    await self._page.wait_for_load_state()
+    await asyncio.sleep(0.5)
+    if not await self._host.is_authenticated(self._page):
+      raise AuthExpiredError("Authentication expired or missing — login required")
+    screenshot_bytes = await self._page.screenshot(type="png", full_page=False)
+    return EnvState(url=self._page.url, screenshot=screenshot_bytes)
 
   async def highlight_mouse(self, x: int, y: int) -> None:
     if not self._highlight_mouse:

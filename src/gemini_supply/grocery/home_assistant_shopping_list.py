@@ -3,9 +3,9 @@ from typing import cast
 
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
-from gemini_supply.agent import ItemNotFoundResult
 from gemini_supply.grocery.types import (
   ItemAddedResult,
+  ItemNotFoundResult,
   ItemStatus,
   ShoppingListItem,
   ShoppingSummary,

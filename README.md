@@ -11,14 +11,16 @@ Quick Start
 
 - Set environment:
   - `export GEMINI_API_KEY="..."`
+  - `export GEMINI_SUPPLY_METRO_USERNAME="email@example.com"`
+  - `export GEMINI_SUPPLY_METRO_PASSWORD="super-secret"`
+  - Optional profile override: `export GEMINI_SUPPLY_USER_DATA_DIR=...`
 
-Authenticate
-------------
+Authentication
+--------------
 
-Run an authentication session so the agent can access metro.ca with your account.
-
-- Persistent profile is used across runs. Optional override: `export GEMINI_SUPPLY_USER_DATA_DIR=...`
-- Start auth: `uv run gemini-supply auth-setup`
+The `shop` command now authenticates automatically before starting and whenever the session expires.
+Make sure the Metro username/password environment variables above are set. Credentials are stored in
+the persistent profile directory for subsequent runs.
 
 Shop
 ----
@@ -75,5 +77,6 @@ Behavior & Notes
 Troubleshooting
 ---------------
 
-- If interactive elements appear during auth, just complete them; the session is persisted.
+- If the automated login reports a failure, verify `GEMINI_SUPPLY_METRO_USERNAME` / `GEMINI_SUPPLY_METRO_PASSWORD`
+  and rerun the command. The workflow will refresh credentials for you when the session expires.
 - The profile directory persists cookies/tokens automatically. To start fresh, delete the folder or set a different `GEMINI_SUPPLY_USER_DATA_DIR`.

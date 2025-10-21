@@ -11,7 +11,7 @@ from gemini_supply.grocery.types import (
   ShoppingSummary,
   ItemStatus,
 )
-from gemini_supply.shopping.orchestrator import ConcurrencySetting
+from gemini_supply.shopping.models import ConcurrencySetting
 
 
 def _items(count: int) -> list[ShoppingListItem]:

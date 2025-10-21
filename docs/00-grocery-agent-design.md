@@ -186,13 +186,12 @@ Where `--shopping-list` points to a YAML shopping list file. This subcommand:
 
 ### 3. Authentication Management
 
-**Initial Setup (Manual):**
-- Run a headful authentication flow to sign in to metro.ca using a persistent profile directory
+**Automated Setup:**
+- Provide metro.ca credentials via environment variables:
+  - `GEMINI_SUPPLY_METRO_USERNAME`
+  - `GEMINI_SUPPLY_METRO_PASSWORD`
+- The shopping orchestrator runs the automated login routine before any agents start.
 - Default profile (Linux): `~/.config/gemini-supply/camoufox-profile`
-- Command:
-```bash
-uv run gemini-supply auth-setup
-```
 
 **Automated Usage:**
 - Browser always launches a persistent context bound to the profile directory
@@ -203,8 +202,8 @@ uv run gemini-supply auth-setup
 
 **Expiry Handling:**
 - DOM-based authentication check (see below) determines if session is valid
-- If unauthenticated → fail current item with "auth_expired" and stop session
-- Log error and notify via provider (if supported)
+- On expiry, the orchestrator gates a single automated re-login and retries the in-flight item once
+- If re-authentication fails, mark the item as `auth_recovery_failed` and continue
 
 **Session Lifetime:** ~1 week (to be validated in practice)
 
@@ -419,13 +418,9 @@ Delivered via `provider.send_summary()`.
 ```
 
 **First Run Setup:**
-```bash
-# Create config directory
-mkdir -p ~/.config/gemini-supply
-
-# Initial authentication
-uv run gemini-supply auth-setup
-```
+- Create config directory: `mkdir -p ~/.config/gemini-supply`
+- Export `GEMINI_SUPPLY_METRO_USERNAME` / `GEMINI_SUPPLY_METRO_PASSWORD`
+- Run `uv run gemini-supply shop ...` to trigger automated login
 
 **Gitignore:**
 ```
@@ -448,7 +443,7 @@ src/gemini_supply/
 ├── computers/
 │   └── camoufox_browser.py  # CamoufoxMetroBrowser: Playwright subclass with auth + restrictions
 ├── grocery_main.py          # Orchestrator for grocery agent
-├── main.py                  # Clypi-based CLI (subcommands: shop, auth-setup)
+├── main.py                  # Clypi-based CLI (subcommands: shop)
 └── agent.py                 # (modifications to existing)
 ```
 

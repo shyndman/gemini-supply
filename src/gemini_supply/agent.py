@@ -49,9 +49,9 @@ from gemini_supply.grocery.types import (
   ItemNotFoundResult,
   ItemNotFoundResultModel,
 )
+from gemini_supply.log import TTYLogger
 from gemini_supply.preferences.service import PreferenceItemSession
 from gemini_supply.preferences.types import ProductChoiceResult
-from gemini_supply.tty_logger import TTYLogger
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
 PREDEFINED_COMPUTER_USE_FUNCTIONS = [

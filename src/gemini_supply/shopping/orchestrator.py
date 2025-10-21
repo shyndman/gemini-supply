@@ -3,28 +3,23 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from dataclasses import dataclass, field
-from datetime import timedelta
-from enum import StrEnum
+from dataclasses import dataclass
 from pathlib import Path
+from datetime import timedelta
 from typing import Literal, Sequence
 
 import termcolor
 
 from gemini_supply.agent import BrowserAgent
-from gemini_supply.computers import AuthExpiredError, CamoufoxHost, ScreenSize
+from gemini_supply.auth import AuthManager, build_camoufox_options
+from gemini_supply.computers import AuthExpiredError, CamoufoxHost
 from gemini_supply.config import DEFAULT_CONFIG_PATH, AppConfig, PreferencesConfig, load_config
 from gemini_supply.grocery import (
   HomeAssistantShoppingListProvider,
   ShoppingListProvider,
   YAMLShoppingListProvider,
 )
-from gemini_supply.grocery.types import (
-  ItemAddedResult,
-  ItemNotFoundResult,
-  ShoppingListItem,
-  ShoppingSummary,
-)
+from gemini_supply.grocery.types import ShoppingListItem
 from gemini_supply.preferences.constants import DEFAULT_NAG_STRINGS, DEFAULT_NORMALIZER_MODEL
 from gemini_supply.preferences.messenger import TelegramPreferenceMessenger, TelegramSettings
 from gemini_supply.preferences.normalizer import NormalizationAgent
@@ -32,33 +27,16 @@ from gemini_supply.preferences.service import PreferenceCoordinator, PreferenceI
 from gemini_supply.preferences.store import PreferenceStore
 from gemini_supply.preferences.types import NormalizedItem, PreferenceRecord
 from gemini_supply.profile import resolve_camoufox_exec, resolve_profile_dir
-from gemini_supply.tty_logger import TTYLogger
-
-
-class LoopStatus(StrEnum):
-  COMPLETE = "COMPLETE"
-  CONTINUE = "CONTINUE"
-
-
-@dataclass(slots=True)
-class AddedOutcome:
-  result: ItemAddedResult
-  type: Literal["added"] = "added"
-
-
-@dataclass(slots=True)
-class NotFoundOutcome:
-  result: ItemNotFoundResult
-  type: Literal["not_found"] = "not_found"
-
-
-@dataclass(slots=True)
-class FailedOutcome:
-  error: str
-  type: Literal["failed"] = "failed"
-
-
-Outcome = AddedOutcome | NotFoundOutcome | FailedOutcome
+from gemini_supply.log import TTYLogger
+from gemini_supply.shopping.models import (
+  AddedOutcome,
+  FailedOutcome,
+  LoopStatus,
+  NotFoundOutcome,
+  Outcome,
+  ShoppingResults,
+  ShoppingSettings,
+)
 
 
 @dataclass(slots=True)
@@ -71,137 +49,18 @@ class PreferenceResources:
       await self.coordinator.stop()
 
 
-def _empty_added_results() -> list[ItemAddedResult]:
-  return []
-
-
-def _empty_not_found_results() -> list[ItemNotFoundResult]:
-  return []
-
-
-def _empty_str_list() -> list[str]:
-  return []
-
-
-@dataclass(slots=True)
-class ShoppingResults:
-  added_items: list[ItemAddedResult] = field(default_factory=_empty_added_results)
-  not_found_items: list[ItemNotFoundResult] = field(default_factory=_empty_not_found_results)
-  out_of_stock_items: list[str] = field(default_factory=_empty_str_list)
-  duplicate_items: list[str] = field(default_factory=_empty_str_list)
-  failed_items: list[str] = field(default_factory=_empty_str_list)
-  total_cost_cents: int = 0
-
-  def record(self, outcome: Outcome) -> None:
-    if isinstance(outcome, AddedOutcome):
-      self.added_items.append(outcome.result)
-      self.total_cost_cents += outcome.result["price_cents"]
-    elif isinstance(outcome, NotFoundOutcome):
-      self.not_found_items.append(outcome.result)
-    elif isinstance(outcome, FailedOutcome):
-      self.failed_items.append(outcome.error)
-
-  def to_summary(self) -> ShoppingSummary:
-    return {
-      "added_items": self.added_items,
-      "not_found_items": self.not_found_items,
-      "out_of_stock_items": self.out_of_stock_items,
-      "duplicate_items": self.duplicate_items,
-      "failed_items": self.failed_items,
-      "total_cost_cents": self.total_cost_cents,
-      "total_cost_text": f"${self.total_cost_cents / 100:.2f}",
-    }
-
-
-@dataclass(slots=True)
-class ConcurrencySetting:
-  requested: int | Literal["len"] | None
-  config_fallback: int | None
-
-  @classmethod
-  def from_inputs(
-    cls, cli_value: int | Literal["len"] | None, config_value: int | None
-  ) -> ConcurrencySetting:
-    return cls(requested=cli_value, config_fallback=config_value)
-
-  def resolve(self, items: Sequence[ShoppingListItem], provider: ShoppingListProvider) -> int:
-    base = self._base_value()
-    effective = self._materialize_len(base, len(items))
-    return self._apply_provider_caps(effective, provider)
-
-  def _base_value(self) -> int | Literal["len"]:
-    if self.requested == "len":
-      return "len"
-    if isinstance(self.requested, int) and self.requested > 0:
-      return self.requested
-    if self.config_fallback is not None and self.config_fallback > 0:
-      return self.config_fallback
-    return 1
-
-  @staticmethod
-  def _materialize_len(base: int | Literal["len"], item_count: int) -> int:
-    if base == "len":
-      return 1 if item_count <= 0 else min(item_count, 20)
-    return base
-
-  @staticmethod
-  def _apply_provider_caps(value: int, provider: ShoppingListProvider) -> int:
-    if isinstance(provider, YAMLShoppingListProvider) and value > 1:
-      termcolor.cprint(
-        "YAML provider does not support parallel writes; forcing concurrency=1.",
-        color="yellow",
-      )
-      return 1
-    return value
-
-
-@dataclass(slots=True)
-class ShoppingSettings:
-  model_name: str
-  highlight_mouse: bool
-  screen_size: ScreenSize
-  time_budget: timedelta
-  max_turns: int
-  postal_code: str
-  concurrency: ConcurrencySetting
-
-
 async def run_shopping(
   *,
   list_path: Path | None,
-  model_name: str,
-  highlight_mouse: bool,
-  screen_size: ScreenSize | tuple[int, int] = ScreenSize(1440, 900),
-  time_budget: timedelta = timedelta(minutes=5),
-  max_turns: int = 40,
-  postal_code: str | None,
+  settings: ShoppingSettings,
   no_retry: bool = False,
+  config: AppConfig | None = None,
   config_path: Path | None = None,
-  concurrency: int | Literal["len"] | None = None,
 ) -> int:
-  config = load_config(config_path or DEFAULT_CONFIG_PATH)
-  resolved_postal = _resolve_postal_code(postal_code, config)
-  provider = _build_provider(list_path, config, no_retry)
-  resolved_screen_size = (
-    screen_size if isinstance(screen_size, ScreenSize) else ScreenSize(*screen_size)
-  )
-  concurrency_setting = ConcurrencySetting.from_inputs(
-    cli_value=concurrency,
-    config_value=config.concurrency if config else None,
-  )
-
-  settings = ShoppingSettings(
-    model_name=model_name,
-    highlight_mouse=highlight_mouse,
-    screen_size=resolved_screen_size,
-    time_budget=time_budget,
-    max_turns=max_turns,
-    postal_code=resolved_postal,
-    concurrency=concurrency_setting,
-  )
-
+  config_obj = config if config is not None else load_config(config_path or DEFAULT_CONFIG_PATH)
+  provider = _build_provider(list_path, config_obj, no_retry)
   logger = TTYLogger()
-  preferences = await _setup_preferences(config.preferences if config else None)
+  preferences = await _setup_preferences(config_obj.preferences if config_obj else None)
 
   try:
     results = await _run_shopping_flow(provider, settings, logger, preferences)
@@ -210,14 +69,6 @@ async def run_shopping(
 
   provider.send_summary(results.to_summary())
   return 0
-
-
-def _resolve_postal_code(postal_code: str | None, config: AppConfig | None) -> str:
-  if postal_code:
-    return postal_code
-  if config is not None and config.postal_code:
-    return config.postal_code
-  raise ValueError("Postal code is required via --postal-code or config postal_code")
 
 
 def _build_provider(
@@ -287,7 +138,14 @@ async def _run_shopping_flow(
   effective_concurrency = settings.concurrency.resolve(items, provider)
 
   env_h = os.environ.get("PLAYWRIGHT_HEADLESS", "").strip().lower()
-  headless = env_h not in ("0", "false", "no")
+  if env_h in ("virtual", "v"):
+    headless_mode: bool | Literal["virtual"] = "virtual"
+  elif env_h in ("0", "false", "no"):
+    headless_mode = False
+  elif env_h:
+    headless_mode = True
+  else:
+    headless_mode = "virtual"
 
   async with CamoufoxHost(
     screen_size=settings.screen_size,
@@ -296,8 +154,11 @@ async def _run_shopping_flow(
     highlight_mouse=settings.highlight_mouse,
     enforce_restrictions=True,
     executable_path=camoufox_exec,
-    headless=headless,
+    headless=headless_mode,
+    camoufox_options=build_camoufox_options(),
   ) as host:
+    auth_manager = AuthManager(host)
+    await auth_manager.ensure_authenticated(force=True)
     if effective_concurrency <= 1:
       return await _run_sequential(
         host=host,
@@ -306,6 +167,7 @@ async def _run_shopping_flow(
         settings=settings,
         logger=logger,
         preferences=preferences,
+        auth_manager=auth_manager,
       )
     return await _run_concurrent(
       host=host,
@@ -315,6 +177,7 @@ async def _run_shopping_flow(
       logger=logger,
       preferences=preferences,
       concurrency=effective_concurrency,
+      auth_manager=auth_manager,
     )
 
 
@@ -326,6 +189,7 @@ async def _run_sequential(
   settings: ShoppingSettings,
   logger: TTYLogger,
   preferences: PreferenceResources,
+  auth_manager: AuthManager,
 ) -> ShoppingResults:
   results = ShoppingResults()
   for item in items:
@@ -337,6 +201,7 @@ async def _run_sequential(
         settings=settings,
         logger=logger,
         preferences=preferences,
+        auth_manager=auth_manager,
       )
     except Exception as exc:  # noqa: BLE001
       await _handle_processing_exception(item, exc, provider)
@@ -354,6 +219,7 @@ async def _run_concurrent(
   logger: TTYLogger,
   preferences: PreferenceResources,
   concurrency: int,
+  auth_manager: AuthManager,
 ) -> ShoppingResults:
   results = ShoppingResults()
   sem = asyncio.Semaphore(concurrency)
@@ -369,6 +235,7 @@ async def _run_concurrent(
           settings=settings,
           logger=logger,
           preferences=preferences,
+          auth_manager=auth_manager,
         )
         collected.append((item, outcome))
       except Exception as exc:  # noqa: BLE001
@@ -393,9 +260,11 @@ async def _process_item(
   settings: ShoppingSettings,
   logger: TTYLogger,
   preferences: PreferenceResources,
+  auth_manager: AuthManager,
 ) -> Outcome:
   preference_session: PreferenceItemSession | None = None
   existing_preference: PreferenceRecord | None = None
+  await auth_manager.ensure_authenticated()
   if preferences.coordinator is not None:
     normalized = await preferences.coordinator.normalize_item(item["name"])
     preference_session = preferences.coordinator.create_session(normalized)
@@ -414,6 +283,7 @@ async def _process_item(
       logger=logger,
       preference_session=preference_session,
       existing_preference=existing_preference,
+      auth_manager=auth_manager,
     )
   except Exception as exc:  # noqa: BLE001
     await _handle_processing_exception(item, exc, provider)
@@ -507,6 +377,7 @@ async def _shop_single_item_in_tab(
   logger: TTYLogger | None = None,
   preference_session: PreferenceItemSession | None = None,
   existing_preference: PreferenceRecord | None = None,
+  auth_manager: AuthManager,
 ) -> Outcome:
   termcolor.cprint(f"🛒 (tab) Shopping for: {item['name']}", color="cyan")
   normalized = preference_session.normalized if preference_session is not None else None
@@ -516,65 +387,93 @@ async def _shop_single_item_in_tab(
   prompt = _build_task_prompt(
     item["name"], postal_code, normalized, existing_preference, can_request_choice
   )
-  start = time.monotonic()
-  budget_seconds = time_budget.total_seconds()
-  turns = 0
-
-  tab = await host.new_tab()
-  agent: BrowserAgent | None = None
-  try:
-    agent = BrowserAgent(
-      browser_computer=tab,
-      query=prompt,
-      model_name=model_name,
-      logger=logger,
-      output_label=item["name"],
-      preference_session=preference_session,
-    )
-    status: LoopStatus = LoopStatus.CONTINUE
-    while status == LoopStatus.CONTINUE:
-      turns += 1
-      if turns > max_turns:
-        provider.mark_failed(item["id"], f"max_turns_exceeded: {max_turns}")
-        termcolor.cprint("Max turns exceeded; marking failed.", color="yellow")
-        return FailedOutcome(error=f"max_turns_exceeded: {max_turns}")
-
-      if time.monotonic() - start > budget_seconds:
-        provider.mark_failed(item["id"], f"time_budget_exceeded: {time_budget}")
-        termcolor.cprint("Time budget exceeded; marking failed.", color="yellow")
-        return FailedOutcome(error=f"time_budget_exceeded: {time_budget}")
-
-      try:
-        res = await agent.run_one_iteration()
-        status = LoopStatus(res)
-      except AuthExpiredError:
-        provider.mark_failed(item["id"], "auth_expired")
-        termcolor.cprint("Authentication expired; stopping session.", color="red")
-        return FailedOutcome(error="auth_expired")
-
-      if agent.last_custom_tool_call is not None:
-        name = agent.last_custom_tool_call["name"]
-        payload = agent.last_custom_tool_call["payload"]
-        if name == "request_preference_choice":
-          agent.last_custom_tool_call = None
-          continue
-        if name == "report_item_added":
-          provider.mark_completed(item["id"], payload)  # type: ignore[arg-type]
-          if preference_session is not None:
-            await preference_session.record_success(payload)  # type: ignore[arg-type]
-          return AddedOutcome(result=payload)  # type: ignore[arg-type]
-        if name == "report_item_not_found":
-          provider.mark_not_found(item["id"], payload)  # type: ignore[arg-type]
-          return NotFoundOutcome(result=payload)  # type: ignore[arg-type]
-        provider.mark_failed(item["id"], f"unexpected_custom_tool: {name}")
-        return FailedOutcome(error=f"unexpected_custom_tool: {name}")
-
-    provider.mark_failed(item["id"], "completed_without_reporting")
-    return FailedOutcome(error="completed_without_reporting")
-  finally:
+  max_attempts = 2
+  for attempt in range(1, max_attempts + 1):
+    needs_retry = False
+    tab = await host.new_tab()
+    agent: BrowserAgent | None = None
+    start = time.monotonic()
+    budget_seconds = time_budget.total_seconds()
+    turns = 0
     try:
-      await tab.close()
-    except Exception:
-      pass
-    if agent is not None:
-      agent.close()
+      agent = BrowserAgent(
+        browser_computer=tab,
+        query=prompt,
+        model_name=model_name,
+        logger=logger,
+        output_label=item["name"],
+        preference_session=preference_session,
+      )
+      status: LoopStatus = LoopStatus.CONTINUE
+      while status == LoopStatus.CONTINUE:
+        turns += 1
+        if turns > max_turns:
+          provider.mark_failed(item["id"], f"max_turns_exceeded: {max_turns}")
+          termcolor.cprint("Max turns exceeded; marking failed.", color="yellow")
+          return FailedOutcome(error=f"max_turns_exceeded: {max_turns}")
+
+        if time.monotonic() - start > budget_seconds:
+          provider.mark_failed(item["id"], f"time_budget_exceeded: {time_budget}")
+          termcolor.cprint("Time budget exceeded; marking failed.", color="yellow")
+          return FailedOutcome(error=f"time_budget_exceeded: {time_budget}")
+
+        try:
+          res = await agent.run_one_iteration()
+          status = LoopStatus(res)
+        except AuthExpiredError:
+          needs_retry = True
+          termcolor.cprint(
+            f"Authentication expired during attempt {attempt}; scheduling re-auth.",
+            color="yellow",
+          )
+          break
+
+        if agent.last_custom_tool_call is not None:
+          name = agent.last_custom_tool_call["name"]
+          payload = agent.last_custom_tool_call["payload"]
+          if name == "request_preference_choice":
+            agent.last_custom_tool_call = None
+            continue
+          if name == "report_item_added":
+            provider.mark_completed(item["id"], payload)  # type: ignore[arg-type]
+            if preference_session is not None:
+              await preference_session.record_success(payload)  # type: ignore[arg-type]
+            return AddedOutcome(result=payload)  # type: ignore[arg-type]
+          if name == "report_item_not_found":
+            provider.mark_not_found(item["id"], payload)  # type: ignore[arg-type]
+            return NotFoundOutcome(result=payload)  # type: ignore[arg-type]
+          provider.mark_failed(item["id"], f"unexpected_custom_tool: {name}")
+          return FailedOutcome(error=f"unexpected_custom_tool: {name}")
+
+      if not needs_retry:
+        provider.mark_failed(item["id"], "completed_without_reporting")
+        return FailedOutcome(error="completed_without_reporting")
+    finally:
+      try:
+        await tab.close()
+      except Exception:
+        pass
+      if agent is not None:
+        agent.close()
+    if needs_retry:
+      termcolor.cprint(
+        "Authentication refreshed; retrying item from the beginning.",
+        color="yellow",
+      )
+      try:
+        await auth_manager.ensure_authenticated()
+      except Exception as auth_exc:  # noqa: BLE001
+        provider.mark_failed(item["id"], f"auth_recovery_failed: {auth_exc}")
+        termcolor.cprint(
+          f"Authentication recovery failed ({auth_exc}); giving up on item.",
+          color="red",
+        )
+        return FailedOutcome(error=f"auth_recovery_failed: {auth_exc}")
+      continue
+
+  provider.mark_failed(item["id"], "auth_recovery_failed")
+  termcolor.cprint(
+    "Authentication recovery exhausted; marking item as failed.",
+    color="red",
+  )
+  return FailedOutcome(error="auth_recovery_failed")
