@@ -118,9 +118,9 @@ class HomeAssistantShoppingListProvider:
     md = self._format_summary(summary)
     # Print to stdout if anything happened; else short note
     has_activity = (
-      bool(summary["added_items"])
-      or bool(summary["not_found_items"])
-      or bool(summary["failed_items"])
+      bool(summary.added_items)
+      or bool(summary.not_found_items)
+      or bool(summary.failed_items)
       or bool(self._duplicates)
       or bool(self._out_of_stock)
     )
@@ -270,6 +270,8 @@ class HomeAssistantShoppingListProvider:
     lines: list[str] = []
     ts = datetime.now().strftime("%b %d, %Y %I:%M%p").replace("am", "am").replace("pm", "pm")
     lines.append(f"Run: {ts}\n\n")
+    default_names = set(summary.default_fills)
+    new_default_names = set(summary.new_defaults)
 
     def fmt_list(header: str, items: list[str]) -> None:
       if not items:
@@ -282,18 +284,24 @@ class HomeAssistantShoppingListProvider:
       lines.append("\n")
 
     # Added to Cart
-    if summary["added_items"]:
+    if summary.added_items:
       lines.append("Added to Cart\n")
-      for it in summary["added_items"]:
-        base, qty = self._parse_quantity(it["item_name"])
+      for it in summary.added_items:
+        base, qty = self._parse_quantity(it.item_name)
         qty_suf = f" ×{qty}" if qty > 1 else ""
-        lines.append(f"- {base}{qty_suf}\n")
+        annotations: list[str] = []
+        if it.item_name in default_names:
+          annotations.append("default")
+        if it.item_name in new_default_names:
+          annotations.append("new default set")
+        note = f" ({', '.join(annotations)})" if annotations else ""
+        lines.append(f"- {base}{qty_suf}{note}\n")
       lines.append("\n")
 
     # Out of Stock / Not Found from this run
     fmt_list("Out of Stock", self._out_of_stock)
-    fmt_list("Not Found", [nf["item_name"] for nf in summary["not_found_items"]])
+    fmt_list("Not Found", [nf.item_name for nf in summary.not_found_items])
     fmt_list("Duplicates", self._duplicates)
-    fmt_list("Failed", summary["failed_items"])
+    fmt_list("Failed", summary.failed_items)
 
     return "".join(lines)

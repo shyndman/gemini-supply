@@ -55,6 +55,7 @@ class NormalizedItem(TypedDict):
   original_text: str
   quantity: int
   brand: str | None
+  qualifiers: list[str]
 
 
 class ProductOption(TypedDict, total=False):
@@ -77,3 +78,4 @@ class ProductChoiceResult(TypedDict, total=False):
   selected_option: ProductOption | None
   alternate_text: str | None
   message: str | None
+  make_default: bool

@@ -1,19 +1,22 @@
-from typing import TypedDict
+from __future__ import annotations
 
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class ItemAddedResult(TypedDict):
+@dataclass(slots=True)
+class ItemAddedResult:
   item_name: str
   price_text: str
   price_cents: int
   url: str
-  quantity: int
+  quantity: int = 1
 
 
-class ItemNotFoundResult(TypedDict):
+@dataclass(slots=True)
+class ItemNotFoundResult:
   item_name: str
   explanation: str
 
@@ -25,7 +28,7 @@ class ItemAddedResultModel(BaseModel):
   url: str
   quantity: int = 1
 
-  def to_typed(self) -> ItemAddedResult:
+  def to_dataclass(self) -> ItemAddedResult:
     return ItemAddedResult(
       item_name=self.item_name,
       price_text=self.price_text,
@@ -39,7 +42,7 @@ class ItemNotFoundResultModel(BaseModel):
   item_name: str
   explanation: str
 
-  def to_typed(self) -> ItemNotFoundResult:
+  def to_dataclass(self) -> ItemNotFoundResult:
     return ItemNotFoundResult(item_name=self.item_name, explanation=self.explanation)
 
 
@@ -48,18 +51,35 @@ class ItemStatus(StrEnum):
   COMPLETED = "completed"
 
 
-class ShoppingListItem(TypedDict):
+@dataclass(slots=True)
+class ShoppingListItem:
   id: str
   name: str
   status: ItemStatus
-  # Optional provider-specific fields can be added by provider implementation
 
 
-class ShoppingSummary(TypedDict):
-  added_items: list[ItemAddedResult]
-  not_found_items: list[ItemNotFoundResult]
-  out_of_stock_items: list[str]
-  duplicate_items: list[str]
-  failed_items: list[str]
-  total_cost_cents: int
-  total_cost_text: str
+def _empty_added_results() -> list[ItemAddedResult]:
+  return []
+
+
+def _empty_not_found_results() -> list[ItemNotFoundResult]:
+  return []
+
+
+def _empty_str_list() -> list[str]:
+  return []
+
+
+@dataclass(slots=True)
+class ShoppingSummary:
+  added_items: list[ItemAddedResult] = field(default_factory=_empty_added_results)
+  not_found_items: list[ItemNotFoundResult] = field(default_factory=_empty_not_found_results)
+  out_of_stock_items: list[str] = field(default_factory=_empty_str_list)
+  duplicate_items: list[str] = field(default_factory=_empty_str_list)
+  failed_items: list[str] = field(default_factory=_empty_str_list)
+  total_cost_cents: int = 0
+  total_cost_text: str = "$0.00"
+  default_fills: list[str] = field(default_factory=_empty_str_list)
+  new_defaults: list[str] = field(default_factory=_empty_str_list)
+  default_fills: list[str]
+  new_defaults: list[str]

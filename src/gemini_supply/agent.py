@@ -112,13 +112,13 @@ def report_item_added(
     url=url,
     quantity=quantity,
   )
-  return model.to_typed()
+  return model.to_dataclass()
 
 
 def report_item_not_found(item_name: str, explanation: str) -> ItemNotFoundResult:
   """Report that an item could not be located on metro.ca."""
   model = ItemNotFoundResultModel(item_name=item_name, explanation=explanation)
-  return model.to_typed()
+  return model.to_dataclass()
 
 
 def request_preference_choice(
@@ -136,7 +136,12 @@ def request_preference_choice(
   Returns:
     A mapping describing the user's decision (selected index or alternate text).
   """
-  return ProductChoiceResult(decision="skip", selected_index=None, selected_option=None)
+  return ProductChoiceResult(
+    decision="skip",
+    selected_index=None,
+    selected_option=None,
+    make_default=False,
+  )
 
 
 class BrowserAgent:

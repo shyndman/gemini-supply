@@ -1,5 +1,9 @@
 # Repository Guidelines
 
+**Important!**
+
+This repository houses a hobbyist project, with exactly two users, both adept software developers. Writing backwards compatible software is not wanted, nor valued. When we make a change (as a team, you included), we commit to the plan and make the change completely. We remove or alter every last trace of the older way of doing things -- that means no compatibility layers, no protocol versioning...no discussions even! Nothing.
+
 ## Project Structure & Module Organization
 The CLI entry point lives in `src/gemini_supply/main.py`, with session orchestration in `src/gemini_supply/agent.py`, browser automation helpers under `src/gemini_supply/computers/`, and grocery-specific flows in `src/gemini_supply/grocery/`. Preference orchestration (normalization, storage, Telegram bridge) is under `src/gemini_supply/preferences/`. Tests mirror those modules inside `tests/`, while configuration examples and integration notes sit in `docs/` and `config.sample.yaml`. Use `examples/` for quick start snippets; artifacts produced by packaging land in `dist/`.
 
@@ -7,10 +11,10 @@ The CLI entry point lives in `src/gemini_supply/main.py`, with session orchestra
 - `uv sync` installs all runtime and dev dependencies.
 - `uv run gemini-supply auth-setup` opens an authenticated metro.ca session using the configured profile.
 - `uv run gemini-supply shop --shopping-list ~/.config/gemini-supply/shopping_list.yaml --postal-code "M5V 1J1"` processes the default YAML shopping list.
-- `uv run ruff check .` and `uv run ruff format .` enforce linting and formatting.
 - `uv run pyright` runs static type checks; fix any warnings before submitting.
 - `uv run pytest -q` executes the async-heavy test suite quickly.
-- If you change dependencies, bump `pyproject.toml` and regenerate `uv.lock` with `uv pip compile pyproject.toml --upgrade`.
+- `ruff check . --fix` and `ruff format .` enforce linting and formatting.
+- If you change dependencies, bump `pyproject.toml` (`uv version --bump major|minor|patch`) and regenerate `uv.lock` with `uv pip compile pyproject.toml --upgrade`.
 - Feature toggles: the product preference system lives under `src/gemini_supply/preferences/`. Normalizer settings (model, base URL, API key) are configurable via the `preferences` block in `config.yaml`.
 
 ## Coding Style & Naming Conventions

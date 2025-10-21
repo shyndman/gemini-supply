@@ -136,23 +136,24 @@ class TelegramPreferenceMessenger:
     lines.append(f"_List entry:_ {escape_markdown(request['original_text'], version=2)}")
     lines.append("")
     lines.append("Reply with a number, tap a button, type a different product, or send `skip`.")
+    lines.append("Use a ⭐ button (or prefix like `⭐3`) to remember the choice as default.")
     lines.append("")
     buttons: list[list[InlineKeyboardButton]] = []
-    row: list[InlineKeyboardButton] = []
     for idx, option in enumerate(request["options"], start=1):
       label = self._format_option_line(idx, option)
       lines.append(label)
-      row.append(
-        InlineKeyboardButton(
-          text=str(idx),
-          callback_data=str(idx),
-        )
+      buttons.append(
+        [
+          InlineKeyboardButton(
+            text=str(idx),
+            callback_data=f"select:{idx}",
+          ),
+          InlineKeyboardButton(
+            text=f"⭐ {idx}",
+            callback_data=f"default:{idx}",
+          ),
+        ]
       )
-      if len(row) == 5:
-        buttons.append(row)
-        row = []
-    if row:
-      buttons.append(row)
     buttons.append([InlineKeyboardButton(text="Skip", callback_data="skip")])
     keyboard = InlineKeyboardMarkup(buttons)
     message: Message = await bot.send_message(
@@ -228,12 +229,14 @@ class TelegramPreferenceMessenger:
     msg = query.message
     if msg is None or msg.chat is None or msg.chat.id != self._settings.chat_id:
       return
-    data = (query.data or "").strip().lower()
-    if data == "skip":
+    raw_data = (query.data or "").strip()
+    lowered = raw_data.lower()
+    if lowered == "skip":
       result: ProductChoiceResult = {
         "decision": "skip",
         "selected_index": None,
         "selected_option": None,
+        "make_default": False,
       }
       await self._resolve_pending(result)
       await context.bot.send_message(
@@ -242,8 +245,19 @@ class TelegramPreferenceMessenger:
         disable_notification=True,
       )
       return
+    is_default = False
+    idx_text: str | None = None
+    if lowered.startswith("select:"):
+      idx_text = lowered.split(":", 1)[1]
+    elif lowered.startswith("default:"):
+      idx_text = lowered.split(":", 1)[1]
+      is_default = True
+    elif lowered.isdigit():
+      idx_text = lowered
+    if not idx_text:
+      return
     try:
-      idx = int(data)
+      idx = int(idx_text)
     except ValueError:
       return
     options = pending.request["options"]
@@ -254,12 +268,14 @@ class TelegramPreferenceMessenger:
       decision="selected",
       selected_index=idx,
       selected_option=option,
+      make_default=is_default,
     )
     await self._resolve_pending(result)
     title = option.get("title") or f"Option {idx}"
+    ack_text = "✅ Default set" if is_default else "✅ Noted"
     await context.bot.send_message(
       chat_id=self._settings.chat_id,
-      text=f"✅ Noted: {title}",
+      text=f"{ack_text}: {title}",
       disable_notification=True,
     )
 
@@ -282,6 +298,7 @@ class TelegramPreferenceMessenger:
         "decision": "skip",
         "selected_index": None,
         "selected_option": None,
+        "make_default": False,
       }
       await self._resolve_pending(result)
       await context.bot.send_message(
@@ -290,22 +307,22 @@ class TelegramPreferenceMessenger:
         disable_notification=True,
       )
       return
-    try:
-      idx = int(text)
-    except ValueError:
-      idx = -1
-    if 1 <= idx <= len(pending.request["options"]):
+    parsed = self._parse_selection_text(text, len(pending.request["options"]))
+    if parsed is not None:
+      idx, is_default = parsed
       option = pending.request["options"][idx - 1]
       result = ProductChoiceResult(
         decision="selected",
         selected_index=idx,
         selected_option=option,
+        make_default=is_default,
       )
       await self._resolve_pending(result)
       title = option.get("title") or f"Option {idx}"
+      ack_text = "✅ Default set" if is_default else "✅ Noted"
       await context.bot.send_message(
         chat_id=self._settings.chat_id,
-        text=f"✅ Noted: {title}",
+        text=f"{ack_text}: {title}",
         disable_notification=True,
       )
       return
@@ -314,6 +331,7 @@ class TelegramPreferenceMessenger:
       selected_index=None,
       selected_option=None,
       alternate_text=text,
+      make_default=False,
     )
     await self._resolve_pending(result)
     await context.bot.send_message(
@@ -338,3 +356,31 @@ class TelegramPreferenceMessenger:
         )
       except Exception:
         pass
+
+  def _parse_selection_text(self, text: str, option_count: int) -> tuple[int, bool] | None:
+    collapsed = text.strip()
+    if not collapsed:
+      return None
+    cleaned = collapsed.replace(" ", "")
+    is_default = False
+    lowered = cleaned.lower()
+    if lowered.startswith("default"):
+      is_default = True
+      cleaned = cleaned[7:]
+    elif lowered.startswith("star"):
+      is_default = True
+      cleaned = cleaned[4:]
+    if cleaned.startswith(":"):
+      cleaned = cleaned[1:]
+    while cleaned.startswith("⭐") or cleaned.startswith("*"):
+      is_default = True
+      cleaned = cleaned[1:]
+    while cleaned.endswith("⭐") or cleaned.endswith("*"):
+      is_default = True
+      cleaned = cleaned[:-1]
+    if not cleaned or not cleaned.isdigit():
+      return None
+    idx = int(cleaned)
+    if idx < 1 or idx > option_count:
+      return None
+    return idx, is_default

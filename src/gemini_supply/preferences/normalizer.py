@@ -12,38 +12,40 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from .constants import DEFAULT_NORMALIZER_MODEL
 from .types import NormalizedItem
 
-SYSTEM_PROMPT = """You are a shopping list item parser. Your task is to analyze a shopping list item and extract structured information from it.
+SYSTEM_PROMPT = """You are a shopping list item parser. Analyze a shopping list entry and extract structured fields.
 
-For each item, extract:
-1. quantity: The number of items requested (default to 1 if not specified)
-2. brand: The specific brand name, if mentioned (null if no brand specified)
-3. category: The general product category or type of item
+Return a JSON object with:
+1. quantity: integer (default 1) representing how many product units are requested.
+2. brand: string or null when no brand is supplied.
+3. category: string describing the general product type. REMOVE strength or quality qualifiers (e.g., "1%", "organic", "unsalted") and size descriptors ("1L", "dozen", "500 g"). Keep the category stable and minimal (e.g., "Milk", "Butter", "Eggs").
+4. qualifiers: array of short strings capturing important adjectives or phrases that were removed from category but matter for shopping (e.g., "1%", "organic", "for baking"). Preserve order of appearance, omit duplicates, and never include size descriptors.
 
-Guidelines:
-- Quantity indicators include: numbers like "2x", "3", "two", etc.
-- Quantity refers to the number of product units (packages/containers), not individual pieces
-- Brand names are proper nouns like "Lactantia", "PC", "No Name", "Compliments", etc.
-- Category should be the general product type (e.g., "Milk", "Bread", "Eggs", "Chicken Breast")
-- Include product qualifiers in the category (e.g., "1%", "whole wheat", "organic") but NOT size descriptors
-- Size descriptors like "dozen", "1L", "500g", "large", "small" should be omitted from the category
-- Be case-insensitive when parsing
-- Handle common abbreviations (e.g., "oz", "lb", "kg")
+Guidance:
+- Quantity indicators include numeric prefixes ("2x", "3") or words ("two", "dozen"). Normalize "dozen" to quantity 12 only when explicitly stated like "two dozen"; otherwise default quantity to 1.
+- Treat brand names as proper nouns ("Lactantia", "PC", "No Name", "Compliments").
+- Exclude size or packaging text from both category and qualifiers (e.g., "1L", "6-pack", "500 g").
+- Preserve helpful usage hints in qualifiers, such as "for baking", "gluten free", "unsalted".
+- Be case insensitive, but output brand and qualifiers in the capitalization provided by the user when possible.
+- Handle common abbreviations ("oz", "lb", "kg") when determining quantity or size; sizes should be discarded.
 
 Examples:
-- "2x Lactantia 1% Milk" → quantity: 2, brand: "Lactantia", category: "1% Milk"
-- "Bread" → quantity: 1, brand: null, category: "Bread"
-- "3 PC Chicken Breasts" → quantity: 3, brand: "PC", category: "Chicken Breasts"
-- "Dozen eggs" → quantity: 1, brand: null, category: "Eggs"
-- "2 dozen eggs" → quantity: 2, brand: null, category: "Eggs"
-- "Large whole wheat bread" → quantity: 1, brand: null, category: "Whole Wheat Bread"
+- "2x Lactantia 1% Milk" → {"quantity": 2, "brand": "Lactantia", "category": "Milk", "qualifiers": ["1%"]}
+- "Bread" → {"quantity": 1, "brand": null, "category": "Bread", "qualifiers": []}
+- "3 PC Chicken Breasts" → {"quantity": 3, "brand": "PC", "category": "Chicken Breasts", "qualifiers": []}
+- "Dozen eggs" → {"quantity": 12, "brand": null, "category": "Eggs", "qualifiers": []}
+- "Milk for baking" → {"quantity": 1, "brand": null, "category": "Milk", "qualifiers": ["for baking"]}
+- "Unsalted Butter 454g" → {"quantity": 1, "brand": null, "category": "Butter", "qualifiers": ["unsalted"]}
 
-You must respond with ONLY valid JSON matching the specified schema. Do not include any explanatory text, markdown formatting, or code blocks - only the raw JSON object."""
+Respond with ONLY valid JSON matching the schema. No explanations, markdown, or extra text."""
 
 
 class _NormalizationModel(BaseModel):
   quantity: int = Field(ge=1, description="The number of items requested.")
   brand: str | None = Field(default=None, description="The brand name if specified.")
   category: str = Field(min_length=1, description="The general product category or type.")
+  qualifiers: list[str] = Field(
+    default_factory=list, description="Qualifiers removed from category."
+  )
 
 
 class NormalizationAgent:
@@ -61,12 +63,21 @@ class NormalizationAgent:
     run_result = await self._agent.run(user_prompt=item_text)
     data = run_result.output
     category = data.category.strip()
+    qualifiers: list[str] = []
+    for value in data.qualifiers:
+      if not isinstance(value, str):
+        continue
+      trimmed = value.strip()
+      if not trimmed:
+        continue
+      qualifiers.append(trimmed)
     return NormalizedItem(
       canonical_key=_slugify(category),
       category_label=category,
       original_text=item_text.strip(),
       quantity=int(data.quantity),
       brand=data.brand.strip() if isinstance(data.brand, str) and data.brand.strip() else None,
+      qualifiers=qualifiers,
     )
 
   @cached_property
