@@ -14,7 +14,7 @@ import termcolor
 from gemini_supply.agent import BrowserAgent
 from gemini_supply.computers import AuthExpiredError, CamoufoxHost, ScreenSize
 from gemini_supply.config import DEFAULT_CONFIG_PATH, AppConfig, PreferencesConfig, load_config
-from gemini_supply.grocery.shopping_list import (
+from gemini_supply.grocery import (
   HomeAssistantShoppingListProvider,
   ShoppingListProvider,
   YAMLShoppingListProvider,
