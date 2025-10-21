@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import cast
 
 import pytest
 
 from gemini_supply.grocery.home_assistant_shopping_list import HomeAssistantShoppingListProvider
 from gemini_supply.grocery.types import ItemAddedResult, ShoppingSummary
-from gemini_supply.preferences.service import PreferenceCoordinator, PreferenceItemSession
+from gemini_supply.preferences.service import (
+  PreferenceCoordinator,
+  PreferenceItemSession,
+  _coerce_options,
+)
 from gemini_supply.preferences.types import NormalizedItem, PreferenceRecord
 from gemini_supply.preferences.normalizer import NormalizationAgent
 from gemini_supply.preferences.store import PreferenceStore
-from gemini_supply.preferences.messenger import TelegramPreferenceMessenger
+from gemini_supply.preferences.messenger import TelegramPreferenceMessenger, TelegramSettings
 from gemini_supply.shopping.models import AddedOutcome, ShoppingResults
 from gemini_supply.shopping.orchestrator import _is_specific_request
 
@@ -98,6 +103,27 @@ async def test_record_success_skips_without_default_toggle() -> None:
   assert store.saved == {}
 
 
+def test_coerce_options_normalizes_price_fields() -> None:
+  options = _coerce_options(
+    [
+      {
+        "title": "Milk",
+        "price_text": "4.99",
+        "price_cents": "499",
+        "url": "https://example.com/milk",
+      },
+      {
+        "title": "Butter",
+        "price_text": "$3.49",
+      },
+    ]
+  )
+  assert options[0].get("price_text") == "$4.99"
+  assert options[0].get("price_cents") == 499
+  assert options[1].get("price_text") == "$3.49"
+  assert options[1].get("price_cents") == 349
+
+
 def test_is_specific_request_detects_brand_and_qualifiers() -> None:
   assert _is_specific_request(_normalized_item(brand="Lactantia")) is True
   assert _is_specific_request(_normalized_item(qualifiers=["unsalted"])) is True
@@ -158,3 +184,35 @@ def test_home_assistant_summary_marks_default_notes() -> None:
   md = provider._format_summary(summary)
   assert "Lactantia 1% Milk (default)" in md
   assert "Irrelevant Butter (new default set)" in md
+
+
+def test_format_option_block_outputs_markdown_lines() -> None:
+  settings = TelegramSettings(bot_token="token", chat_id=123, nag_interval=timedelta(minutes=1))
+  messenger = TelegramPreferenceMessenger(settings=settings, nag_strings=[])
+  block = messenger._format_option_block(
+    1,
+    {
+      "title": "2L Milk",
+      "price_text": "$4.99",
+      "description": "2L jug",
+      "url": "https://example.com/milk",
+    },
+  )
+  assert block[0] == "1. *2L Milk*"
+  assert "Price:" in block[1]
+  assert "$4\\.99" in block[1]
+  assert block[-1].startswith("   [View Product]")
+
+
+def test_format_acknowledgement_includes_price() -> None:
+  settings = TelegramSettings(bot_token="token", chat_id=123, nag_interval=timedelta(minutes=1))
+  messenger = TelegramPreferenceMessenger(settings=settings, nag_strings=[])
+  ack = messenger._format_acknowledgement(
+    "✅ Noted",
+    {
+      "title": "2L Milk",
+      "price_cents": 499,
+    },
+  )
+  assert ack.startswith("✅ Noted *2L Milk*")
+  assert "$4\\.99" in ack

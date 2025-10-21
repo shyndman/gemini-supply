@@ -63,6 +63,8 @@ class ProductOption(TypedDict, total=False):
   url: str | None
   description: str | None
   notes: str | None
+  price_text: str | None
+  price_cents: int | None
 
 
 class ProductChoiceRequest(TypedDict):

@@ -137,11 +137,13 @@ class TelegramPreferenceMessenger:
     lines.append("")
     lines.append("Reply with a number, tap a button, type a different product, or send `skip`.")
     lines.append("Use a ⭐ button (or prefix like `⭐3`) to remember the choice as default.")
+    lines.append("Titles, prices, and links are shown for each option.")
     lines.append("")
     buttons: list[list[InlineKeyboardButton]] = []
     for idx, option in enumerate(request["options"], start=1):
-      label = self._format_option_line(idx, option)
-      lines.append(label)
+      block = self._format_option_block(idx, option)
+      lines.extend(block)
+      lines.append("")
       buttons.append(
         [
           InlineKeyboardButton(
@@ -156,6 +158,8 @@ class TelegramPreferenceMessenger:
       )
     buttons.append([InlineKeyboardButton(text="Skip", callback_data="skip")])
     keyboard = InlineKeyboardMarkup(buttons)
+    if lines and lines[-1] == "":
+      lines.pop()
     message: Message = await bot.send_message(
       chat_id=self._settings.chat_id,
       text="\n".join(lines),
@@ -165,17 +169,47 @@ class TelegramPreferenceMessenger:
     )
     return message.message_id
 
-  def _format_option_line(self, idx: int, option: ProductOption) -> str:
+  def _format_option_block(self, idx: int, option: ProductOption) -> list[str]:
     title = escape_markdown(option.get("title", f"Option {idx}"), version=2)
-    parts = [f"{idx}. {title}"]
+    block: list[str] = [f"{idx}. *{title}*"]
+    price_display = self._option_price_display(option)
+    if price_display is not None:
+      block.append("   Price: `" + escape_markdown(price_display, version=2) + "`")
     description = option.get("description")
     if isinstance(description, str) and description.strip():
-      parts.append(f"— {escape_markdown(description.strip(), version=2)}")
+      block.append("   Description: " + escape_markdown(description.strip(), version=2))
+    notes = option.get("notes")
+    if isinstance(notes, str) and notes.strip():
+      block.append("   Notes: " + escape_markdown(notes.strip(), version=2))
     url = option.get("url")
     if isinstance(url, str) and url.strip():
-      safe_url = url.strip()
-      parts.append(f" ([link]({escape_markdown(safe_url, version=2)}))")
-    return "".join(parts)
+      safe_url = escape_markdown(url.strip(), version=2)
+      block.append(f"   [View Product]({safe_url})")
+    return block
+
+  @staticmethod
+  def _option_price_display(option: ProductOption) -> str | None:
+    price_text = option.get("price_text")
+    if isinstance(price_text, str):
+      trimmed = price_text.strip()
+      if trimmed:
+        return trimmed
+    price_cents = option.get("price_cents")
+    if isinstance(price_cents, int) and price_cents >= 0:
+      return f"${price_cents / 100:.2f}"
+    return None
+
+  def _format_acknowledgement(self, status: str, option: ProductOption) -> str:
+    title_raw = option.get("title")
+    title = title_raw.strip() if isinstance(title_raw, str) else "Selected option"
+    if not title:
+      title = "Selected option"
+    escaped_title = escape_markdown(title, version=2)
+    price_display = self._option_price_display(option)
+    if price_display is not None:
+      escaped_price = escape_markdown(price_display, version=2)
+      return f"{status} *{escaped_title}* - `{escaped_price}`"
+    return f"{status} *{escaped_title}*"
 
   def _schedule_nag(self, request_id: int) -> str:
     app = self._application
@@ -271,11 +305,12 @@ class TelegramPreferenceMessenger:
       make_default=is_default,
     )
     await self._resolve_pending(result)
-    title = option.get("title") or f"Option {idx}"
-    ack_text = "✅ Default set" if is_default else "✅ Noted"
+    ack_status = "✅ Default set" if is_default else "✅ Noted"
+    ack_message = self._format_acknowledgement(ack_status, option)
     await context.bot.send_message(
       chat_id=self._settings.chat_id,
-      text=f"{ack_text}: {title}",
+      text=ack_message,
+      parse_mode=ParseMode.MARKDOWN_V2,
       disable_notification=True,
     )
 
@@ -318,11 +353,12 @@ class TelegramPreferenceMessenger:
         make_default=is_default,
       )
       await self._resolve_pending(result)
-      title = option.get("title") or f"Option {idx}"
-      ack_text = "✅ Default set" if is_default else "✅ Noted"
+      ack_status = "✅ Default set" if is_default else "✅ Noted"
+      ack_message = self._format_acknowledgement(ack_status, option)
       await context.bot.send_message(
         chat_id=self._settings.chat_id,
-        text=f"{ack_text}: {title}",
+        text=ack_message,
+        parse_mode=ParseMode.MARKDOWN_V2,
         disable_notification=True,
       )
       return

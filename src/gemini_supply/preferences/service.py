@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from decimal import Decimal, InvalidOperation
 from dataclasses import dataclass
 
 from gemini_supply.grocery.types import ItemAddedResult
@@ -157,5 +158,66 @@ def _coerce_options(raw_options: Sequence[Mapping[str, object]]) -> list[Product
     desc_val = raw.get("description") or raw.get("subtitle") or raw.get("notes")
     if isinstance(desc_val, str) and desc_val.strip():
       option["description"] = desc_val.strip()
+    price_text_val = (
+      raw.get("price_text") or raw.get("price") or raw.get("priceText") or raw.get("amount")
+    )
+    price_text = _normalize_price_text(price_text_val)
+    price_cents_val = raw.get("price_cents") or raw.get("priceCents")
+    price_cents = _normalize_price_cents(price_cents_val)
+    if price_cents is None and price_text is not None:
+      price_cents = _derive_price_cents_from_text(price_text)
+    if price_text is None and price_cents is not None:
+      price_text = f"${price_cents / 100:.2f}"
+    if price_text is not None:
+      option["price_text"] = price_text
+    if price_cents is not None:
+      option["price_cents"] = price_cents
     coerced.append(option)
   return coerced
+
+
+def _normalize_price_text(value: object) -> str | None:
+  if not isinstance(value, str):
+    return None
+  text = value.strip()
+  if not text:
+    return None
+  prefixed = text
+  if prefixed[0].isdigit():
+    prefixed = f"${prefixed}"
+  return prefixed
+
+
+def _normalize_price_cents(value: object) -> int | None:
+  if isinstance(value, int) and value >= 0:
+    return value
+  if isinstance(value, str):
+    stripped = value.strip()
+    if stripped.isdigit():
+      return int(stripped)
+  return None
+
+
+def _derive_price_cents_from_text(text: str) -> int | None:
+  cleaned = text.strip()
+  if not cleaned:
+    return None
+  normalized = (
+    cleaned.replace("CAD", "")
+    .replace("cad", "")
+    .replace("$", "")
+    .replace(",", "")
+    .replace("\u00a0", "")
+    .replace(" ", "")
+    .strip()
+  )
+  if not normalized:
+    return None
+  try:
+    decimal_value = Decimal(normalized)
+  except InvalidOperation:
+    return None
+  cents = int((decimal_value * 100).quantize(Decimal("1")))
+  if cents < 0:
+    return None
+  return cents

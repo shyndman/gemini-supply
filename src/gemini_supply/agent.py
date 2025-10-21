@@ -51,7 +51,7 @@ from gemini_supply.grocery.types import (
 )
 from gemini_supply.log import TTYLogger
 from gemini_supply.preferences.service import PreferenceItemSession
-from gemini_supply.preferences.types import ProductChoiceResult
+from gemini_supply.preferences.types import ProductChoiceResult, ProductOption
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
 PREDEFINED_COMPUTER_USE_FUNCTIONS = [
@@ -124,14 +124,15 @@ def report_item_not_found(item_name: str, explanation: str) -> ItemNotFoundResul
 def request_preference_choice(
   canonical_key: str,
   category_label: str,
-  options: list[dict[str, object]],
+  options: list[ProductOption],
 ) -> ProductChoiceResult:
   """Request human input to choose a preferred product.
 
   Args:
     canonical_key: Normalized category slug (e.g., "milk").
     category_label: Human-readable category label (e.g., "Milk").
-    options: Up to 10 dictionaries containing `title`, optional `url`, and optional `description`.
+    options: Up to 10 structured product options containing `title`, price metadata
+      (`price_text` and `price_cents`), optional `url`, and optional descriptive text.
 
   Returns:
     A mapping describing the user's decision (selected index or alternate text).

@@ -364,8 +364,12 @@ def _build_task_prompt(
     "  7. If product cannot be located after reasonable attempts, call report_item_not_found(item_name, explanation).",
   ]
   if can_request_choice:
-    instructions.append(
-      "  8. When you cannot confidently pick a product, call request_preference_choice with up to 10 promising SRP results (include titles and product URLs). Wait for the response before continuing."
+    instructions.extend(
+      [
+        "  8. When you cannot confidently pick a product, call request_preference_choice with up to 10 promising SRP results.",
+        "     Include title, price_text (currency string), price_cents (integer), and the product URL for each option.",
+        "     Wait for the response before continuing.",
+      ]
     )
   instructions_text = "\n".join(instructions) + "\n\n"
   header = f"Goal: Add ONE specific item to metro.ca cart\nItem: {item_name}\n\n"
