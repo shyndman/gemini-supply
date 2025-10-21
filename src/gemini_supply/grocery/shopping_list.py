@@ -132,10 +132,10 @@ class YAMLShoppingListProvider:
     for raw in data.items:
       if raw.resolved_id == item_id:
         raw.status = ItemStatus.COMPLETED
-        raw.price_text = result["price_text"]
-        raw.price_cents = result["price_cents"]
-        raw.url = result["url"]
-        raw.quantity = result["quantity"]
+        raw.price_text = result.price_text
+        raw.price_cents = result.price_cents
+        raw.url = result.url
+        raw.quantity = result.quantity
         break
     self._write(data)
 
@@ -147,7 +147,7 @@ class YAMLShoppingListProvider:
         if "#not_found" not in tags:
           tags.append("#not_found")
         raw.tags = tags
-        raw.explanation = result["explanation"]
+        raw.explanation = result.explanation
         break
     self._write(data)
 
@@ -180,15 +180,15 @@ class YAMLShoppingListProvider:
     lines: list[str] = []
     lines.append("Shopping Summary\n")
     lines.append("Added:\n")
-    for item in summary["added_items"]:
-      lines.append(f"- {item['item_name']} x{item['quantity']} — {item['price_text']}\n")
+    for item in summary.added_items:
+      lines.append(f"- {item.item_name} x{item.quantity} — {item.price_text}\n")
     lines.append("\nNot Found:\n")
-    for nf in summary["not_found_items"]:
-      lines.append(f"- {nf['item_name']}: {nf['explanation']}\n")
+    for nf in summary.not_found_items:
+      lines.append(f"- {nf.item_name}: {nf.explanation}\n")
     lines.append("\nFailed:\n")
-    for f in summary["failed_items"]:
+    for f in summary.failed_items:
       lines.append(f"- {f}\n")
-    lines.append(f"\nTotal: {summary['total_cost_text']}\n")
+    lines.append(f"\nTotal: {summary.total_cost_text}\n")
     out.write_text("".join(lines), encoding="utf-8")
 
   # --- Internal helpers ---

@@ -19,7 +19,7 @@ from gemini_supply.grocery import (
   ShoppingListProvider,
   YAMLShoppingListProvider,
 )
-from gemini_supply.grocery.types import ShoppingListItem
+from gemini_supply.grocery.types import ItemAddedResult, ItemNotFoundResult, ShoppingListItem
 from gemini_supply.preferences.constants import DEFAULT_NAG_STRINGS, DEFAULT_NORMALIZER_MODEL
 from gemini_supply.preferences.messenger import TelegramPreferenceMessenger, TelegramSettings
 from gemini_supply.preferences.normalizer import NormalizationAgent
@@ -264,11 +264,14 @@ async def _process_item(
 ) -> Outcome:
   preference_session: PreferenceItemSession | None = None
   existing_preference: PreferenceRecord | None = None
+  specific_request = False
   await auth_manager.ensure_authenticated()
   if preferences.coordinator is not None:
-    normalized = await preferences.coordinator.normalize_item(item["name"])
+    normalized = await preferences.coordinator.normalize_item(item.name)
     preference_session = preferences.coordinator.create_session(normalized)
-    existing_preference = await preference_session.existing_preference()
+    specific_request = _is_specific_request(normalized)
+    if not specific_request:
+      existing_preference = await preference_session.existing_preference()
 
   try:
     return await _shop_single_item_in_tab(
@@ -283,6 +286,7 @@ async def _process_item(
       logger=logger,
       preference_session=preference_session,
       existing_preference=existing_preference,
+      specific_request=specific_request,
       auth_manager=auth_manager,
     )
   except Exception as exc:  # noqa: BLE001
@@ -299,7 +303,13 @@ async def _handle_processing_exception(
   tb = traceback.format_exc()
   termcolor.cprint("Exception while shopping item:", color="red")
   print(tb, file=sys.stderr)
-  provider.mark_failed(item["id"], f"exception: {exc}\n{tb}")
+  provider.mark_failed(item.id, f"exception: {exc}\n{tb}")
+
+
+def _is_specific_request(normalized: NormalizedItem) -> bool:
+  if normalized.brand:
+    return True
+  return any(qualifier.strip() for qualifier in normalized.qualifiers)
 
 
 def _build_task_prompt(
@@ -308,16 +318,22 @@ def _build_task_prompt(
   normalized: NormalizedItem | None,
   preference: PreferenceRecord | None,
   can_request_choice: bool,
+  specific_request: bool,
 ) -> str:
   normalized_lines: list[str] = []
   if normalized is not None:
     normalized_lines.append(
-      f"Normalized category: {normalized['category_label']} (key: {normalized['canonical_key']})"
+      f"Normalized category: {normalized.category_label} (key: {normalized.canonical_key})"
     )
-    if normalized.get("brand"):
-      normalized_lines.append(f"Detected brand: {normalized['brand']}")
-    normalized_lines.append(f"Original text: {normalized['original_text']}")
+    if normalized.brand:
+      normalized_lines.append(f"Detected brand: {normalized.brand}")
+    if normalized.qualifiers:
+      normalized_lines.append(f"Qualifiers: {', '.join(normalized.qualifiers)}")
+    normalized_lines.append(f"Original text: {normalized.original_text}")
     normalized_lines.append("")
+    if specific_request:
+      normalized_lines.append("Specific request detected; ignore previously stored defaults.")
+      normalized_lines.append("")
   preference_lines: list[str] = []
   if preference is not None:
     preference_lines.append("Known preference available:")
@@ -344,8 +360,12 @@ def _build_task_prompt(
     "  7. If product cannot be located after reasonable attempts, call report_item_not_found(item_name, explanation).",
   ]
   if can_request_choice:
-    instructions.append(
-      "  8. When you cannot confidently pick a product, call request_preference_choice with up to 10 promising SRP results (include titles and product URLs). Wait for the response before continuing."
+    instructions.extend(
+      [
+        "  8. When you cannot confidently pick a product, call request_preference_choice with up to 10 promising SRP results.",
+        "     Include title, price_text (currency string), price_cents (integer), and the product URL for each option.",
+        "     Wait for the response before continuing.",
+      ]
     )
   instructions_text = "\n".join(instructions) + "\n\n"
   header = f"Goal: Add ONE specific item to metro.ca cart\nItem: {item_name}\n\n"
@@ -377,15 +397,21 @@ async def _shop_single_item_in_tab(
   logger: TTYLogger | None = None,
   preference_session: PreferenceItemSession | None = None,
   existing_preference: PreferenceRecord | None = None,
+  specific_request: bool = False,
   auth_manager: AuthManager,
 ) -> Outcome:
-  termcolor.cprint(f"🛒 (tab) Shopping for: {item['name']}", color="cyan")
+  termcolor.cprint(f"🛒 (tab) Shopping for: {item.name}", color="cyan")
   normalized = preference_session.normalized if preference_session is not None else None
   can_request_choice = (
     preference_session.can_request_choice if preference_session is not None else False
   )
   prompt = _build_task_prompt(
-    item["name"], postal_code, normalized, existing_preference, can_request_choice
+    item.name,
+    postal_code,
+    normalized,
+    existing_preference,
+    can_request_choice,
+    specific_request,
   )
   max_attempts = 2
   for attempt in range(1, max_attempts + 1):
@@ -401,19 +427,19 @@ async def _shop_single_item_in_tab(
         query=prompt,
         model_name=model_name,
         logger=logger,
-        output_label=item["name"],
+        output_label=item.name,
         preference_session=preference_session,
       )
       status: LoopStatus = LoopStatus.CONTINUE
       while status == LoopStatus.CONTINUE:
         turns += 1
         if turns > max_turns:
-          provider.mark_failed(item["id"], f"max_turns_exceeded: {max_turns}")
+          provider.mark_failed(item.id, f"max_turns_exceeded: {max_turns}")
           termcolor.cprint("Max turns exceeded; marking failed.", color="yellow")
           return FailedOutcome(error=f"max_turns_exceeded: {max_turns}")
 
         if time.monotonic() - start > budget_seconds:
-          provider.mark_failed(item["id"], f"time_budget_exceeded: {time_budget}")
+          provider.mark_failed(item.id, f"time_budget_exceeded: {time_budget}")
           termcolor.cprint("Time budget exceeded; marking failed.", color="yellow")
           return FailedOutcome(error=f"time_budget_exceeded: {time_budget}")
 
@@ -434,19 +460,28 @@ async def _shop_single_item_in_tab(
           if name == "request_preference_choice":
             agent.last_custom_tool_call = None
             continue
-          if name == "report_item_added":
-            provider.mark_completed(item["id"], payload)  # type: ignore[arg-type]
+          if name == "report_item_added" and isinstance(payload, ItemAddedResult):
+            provider.mark_completed(item.id, payload)
             if preference_session is not None:
-              await preference_session.record_success(payload)  # type: ignore[arg-type]
-            return AddedOutcome(result=payload)  # type: ignore[arg-type]
-          if name == "report_item_not_found":
-            provider.mark_not_found(item["id"], payload)  # type: ignore[arg-type]
-            return NotFoundOutcome(result=payload)  # type: ignore[arg-type]
-          provider.mark_failed(item["id"], f"unexpected_custom_tool: {name}")
+              default_used = (
+                preference_session.has_existing_preference and not preference_session.prompted_user
+              )
+              make_default = preference_session.make_default_pending
+              await preference_session.record_success(payload, default_used=default_used)
+              return AddedOutcome(
+                result=payload,
+                used_default=default_used,
+                starred_default=make_default,
+              )
+            return AddedOutcome(result=payload)
+          if name == "report_item_not_found" and isinstance(payload, ItemNotFoundResult):
+            provider.mark_not_found(item.id, payload)
+            return NotFoundOutcome(result=payload)
+          provider.mark_failed(item.id, f"unexpected_custom_tool: {name}")
           return FailedOutcome(error=f"unexpected_custom_tool: {name}")
 
       if not needs_retry:
-        provider.mark_failed(item["id"], "completed_without_reporting")
+        provider.mark_failed(item.id, "completed_without_reporting")
         return FailedOutcome(error="completed_without_reporting")
     finally:
       try:
@@ -463,7 +498,7 @@ async def _shop_single_item_in_tab(
       try:
         await auth_manager.ensure_authenticated()
       except Exception as auth_exc:  # noqa: BLE001
-        provider.mark_failed(item["id"], f"auth_recovery_failed: {auth_exc}")
+        provider.mark_failed(item.id, f"auth_recovery_failed: {auth_exc}")
         termcolor.cprint(
           f"Authentication recovery failed ({auth_exc}); giving up on item.",
           color="red",
@@ -471,7 +506,7 @@ async def _shop_single_item_in_tab(
         return FailedOutcome(error=f"auth_recovery_failed: {auth_exc}")
       continue
 
-  provider.mark_failed(item["id"], "auth_recovery_failed")
+  provider.mark_failed(item.id, "auth_recovery_failed")
   termcolor.cprint(
     "Authentication recovery exhausted; marking item as failed.",
     color="red",

@@ -35,6 +35,8 @@ def _empty_str_list() -> list[str]:
 @dataclass(slots=True)
 class AddedOutcome:
   result: ItemAddedResult
+  used_default: bool = False
+  starred_default: bool = False
   type: Literal["added"] = "added"
 
 
@@ -61,26 +63,34 @@ class ShoppingResults:
   duplicate_items: list[str] = field(default_factory=_empty_str_list)
   failed_items: list[str] = field(default_factory=_empty_str_list)
   total_cost_cents: int = 0
+  default_filled_items: list[str] = field(default_factory=_empty_str_list)
+  new_default_items: list[str] = field(default_factory=_empty_str_list)
 
   def record(self, outcome: Outcome) -> None:
     if isinstance(outcome, AddedOutcome):
       self.added_items.append(outcome.result)
-      self.total_cost_cents += outcome.result["price_cents"]
+      self.total_cost_cents += outcome.result.price_cents
+      if outcome.used_default:
+        self.default_filled_items.append(outcome.result.item_name)
+      if outcome.starred_default:
+        self.new_default_items.append(outcome.result.item_name)
     elif isinstance(outcome, NotFoundOutcome):
       self.not_found_items.append(outcome.result)
     elif isinstance(outcome, FailedOutcome):
       self.failed_items.append(outcome.error)
 
   def to_summary(self) -> ShoppingSummary:
-    return {
-      "added_items": self.added_items,
-      "not_found_items": self.not_found_items,
-      "out_of_stock_items": self.out_of_stock_items,
-      "duplicate_items": self.duplicate_items,
-      "failed_items": self.failed_items,
-      "total_cost_cents": self.total_cost_cents,
-      "total_cost_text": f"${self.total_cost_cents / 100:.2f}",
-    }
+    return ShoppingSummary(
+      added_items=list(self.added_items),
+      not_found_items=list(self.not_found_items),
+      out_of_stock_items=list(self.out_of_stock_items),
+      duplicate_items=list(self.duplicate_items),
+      failed_items=list(self.failed_items),
+      total_cost_cents=self.total_cost_cents,
+      total_cost_text=f"${self.total_cost_cents / 100:.2f}",
+      default_fills=list(self.default_filled_items),
+      new_defaults=list(self.new_default_items),
+    )
 
 
 @dataclass(slots=True)
