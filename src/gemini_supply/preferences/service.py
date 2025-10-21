@@ -78,7 +78,7 @@ class PreferenceItemSession:
 
   async def existing_preference(self) -> PreferenceRecord | None:
     if self._cached_preference is _SENTINEL:
-      pref = await self._coordinator._get_preference(self._normalized["canonical_key"])
+      pref = await self._coordinator._get_preference(self._normalized.canonical_key)
       if pref is not None:
         self._cached_preference = pref
         self._has_existing_preference = True
@@ -105,14 +105,14 @@ class PreferenceItemSession:
     self._prompt_invoked = True
     self._make_default_on_success = False
     coerced_options = _coerce_options(options)
-    request: ProductChoiceRequest = {
-      "canonical_key": self._normalized["canonical_key"],
-      "category_label": self._normalized["category_label"],
-      "original_text": self._normalized["original_text"],
-      "options": coerced_options[:10],
-    }
+    request = ProductChoiceRequest(
+      canonical_key=self._normalized.canonical_key,
+      category_label=self._normalized.category_label,
+      original_text=self._normalized.original_text,
+      options=coerced_options[:10],
+    )
     result = await messenger.request_choice(request)
-    if result.get("decision") == "selected" and result.get("make_default"):
+    if result.decision == "selected" and result.make_default:
       self._make_default_on_success = True
     else:
       self._make_default_on_success = False
@@ -123,8 +123,8 @@ class PreferenceItemSession:
     make_default = self._make_default_on_success
     self._make_default_on_success = False
     metadata = PreferenceMetadata(
-      category_label=self._normalized["category_label"],
-      brand=self._normalized.get("brand"),
+      category_label=self._normalized.category_label,
+      brand=self._normalized.brand,
     )
     if make_default:
       record = PreferenceRecord(
@@ -132,7 +132,7 @@ class PreferenceItemSession:
         product_url=added.url,
         metadata=metadata,
       )
-      await self._coordinator.store.set(self._normalized["canonical_key"], record)
+      await self._coordinator.store.set(self._normalized.canonical_key, record)
       self._cached_preference = record
       self._has_existing_preference = True
 
@@ -151,13 +151,13 @@ def _coerce_options(raw_options: Sequence[Mapping[str, object]]) -> list[Product
     title = str(title_val).strip()
     if not title:
       title = f"Option {idx}"
-    option: ProductOption = {"title": title}
+    option_data: dict[str, object] = {"title": title}
     url_val = raw.get("url") or raw.get("href")
     if isinstance(url_val, str) and url_val.strip():
-      option["url"] = url_val.strip()
+      option_data["url"] = url_val.strip()
     desc_val = raw.get("description") or raw.get("subtitle") or raw.get("notes")
     if isinstance(desc_val, str) and desc_val.strip():
-      option["description"] = desc_val.strip()
+      option_data["description"] = desc_val.strip()
     price_text_val = (
       raw.get("price_text") or raw.get("price") or raw.get("priceText") or raw.get("amount")
     )
@@ -169,9 +169,10 @@ def _coerce_options(raw_options: Sequence[Mapping[str, object]]) -> list[Product
     if price_text is None and price_cents is not None:
       price_text = f"${price_cents / 100:.2f}"
     if price_text is not None:
-      option["price_text"] = price_text
+      option_data["price_text"] = price_text
     if price_cents is not None:
-      option["price_cents"] = price_cents
+      option_data["price_cents"] = price_cents
+    option = ProductOption.model_validate(option_data)
     coerced.append(option)
   return coerced
 
@@ -182,10 +183,8 @@ def _normalize_price_text(value: object) -> str | None:
   text = value.strip()
   if not text:
     return None
-  prefixed = text
-  if prefixed[0].isdigit():
-    prefixed = f"${prefixed}"
-  return prefixed
+  cleaned = text.replace("CAD", "").replace("cad", "").replace("\u00a0", " ").strip()
+  return cleaned or None
 
 
 def _normalize_price_cents(value: object) -> int | None:

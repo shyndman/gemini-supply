@@ -307,12 +307,9 @@ async def _handle_processing_exception(
 
 
 def _is_specific_request(normalized: NormalizedItem) -> bool:
-  if normalized.get("brand"):
+  if normalized.brand:
     return True
-  qualifiers = normalized.get("qualifiers", [])
-  if isinstance(qualifiers, Sequence):
-    return any(isinstance(q, str) and q.strip() for q in qualifiers)
-  return False
+  return any(qualifier.strip() for qualifier in normalized.qualifiers)
 
 
 def _build_task_prompt(
@@ -326,14 +323,13 @@ def _build_task_prompt(
   normalized_lines: list[str] = []
   if normalized is not None:
     normalized_lines.append(
-      f"Normalized category: {normalized['category_label']} (key: {normalized['canonical_key']})"
+      f"Normalized category: {normalized.category_label} (key: {normalized.canonical_key})"
     )
-    if normalized.get("brand"):
-      normalized_lines.append(f"Detected brand: {normalized['brand']}")
-    qualifiers = normalized.get("qualifiers", [])
-    if qualifiers:
-      normalized_lines.append(f"Qualifiers: {', '.join(qualifiers)}")
-    normalized_lines.append(f"Original text: {normalized['original_text']}")
+    if normalized.brand:
+      normalized_lines.append(f"Detected brand: {normalized.brand}")
+    if normalized.qualifiers:
+      normalized_lines.append(f"Qualifiers: {', '.join(normalized.qualifiers)}")
+    normalized_lines.append(f"Original text: {normalized.original_text}")
     normalized_lines.append("")
     if specific_request:
       normalized_lines.append("Specific request detected; ignore previously stored defaults.")

@@ -132,15 +132,15 @@ class TelegramPreferenceMessenger:
     assert app is not None
     bot: BotType = app.bot
     lines: list[str] = []
-    lines.append(f"*{escape_markdown(request['category_label'], version=2)}*")
-    lines.append(f"_List entry:_ {escape_markdown(request['original_text'], version=2)}")
+    lines.append(f"*{escape_markdown(request.category_label, version=2)}*")
+    lines.append(f"_List entry:_ {escape_markdown(request.original_text, version=2)}")
     lines.append("")
     lines.append("Reply with a number, tap a button, type a different product, or send `skip`.")
     lines.append("Use a ⭐ button (or prefix like `⭐3`) to remember the choice as default.")
     lines.append("Titles, prices, and links are shown for each option.")
     lines.append("")
     buttons: list[list[InlineKeyboardButton]] = []
-    for idx, option in enumerate(request["options"], start=1):
+    for idx, option in enumerate(request.options, start=1):
       block = self._format_option_block(idx, option)
       lines.extend(block)
       lines.append("")
@@ -170,37 +170,32 @@ class TelegramPreferenceMessenger:
     return message.message_id
 
   def _format_option_block(self, idx: int, option: ProductOption) -> list[str]:
-    title = escape_markdown(option.get("title", f"Option {idx}"), version=2)
+    title = escape_markdown(option.title or f"Option {idx}", version=2)
     block: list[str] = [f"{idx}. *{title}*"]
     price_display = self._option_price_display(option)
     if price_display is not None:
       block.append("   Price: `" + escape_markdown(price_display, version=2) + "`")
-    description = option.get("description")
-    if isinstance(description, str) and description.strip():
-      block.append("   Description: " + escape_markdown(description.strip(), version=2))
-    notes = option.get("notes")
-    if isinstance(notes, str) and notes.strip():
-      block.append("   Notes: " + escape_markdown(notes.strip(), version=2))
-    url = option.get("url")
-    if isinstance(url, str) and url.strip():
-      safe_url = escape_markdown(url.strip(), version=2)
+    if option.description:
+      block.append("   Description: " + escape_markdown(option.description, version=2))
+    if option.notes:
+      block.append("   Notes: " + escape_markdown(option.notes, version=2))
+    if option.url:
+      safe_url = escape_markdown(option.url, version=2)
       block.append(f"   [View Product]({safe_url})")
     return block
 
   @staticmethod
   def _option_price_display(option: ProductOption) -> str | None:
-    price_text = option.get("price_text")
-    if isinstance(price_text, str):
-      trimmed = price_text.strip()
+    if option.price_text is not None:
+      trimmed = option.price_text.strip()
       if trimmed:
         return trimmed
-    price_cents = option.get("price_cents")
-    if isinstance(price_cents, int) and price_cents >= 0:
-      return f"${price_cents / 100:.2f}"
+    if option.price_cents is not None and option.price_cents >= 0:
+      return f"${option.price_cents / 100:.2f}"
     return None
 
   def _format_acknowledgement(self, status: str, option: ProductOption) -> str:
-    title_raw = option.get("title")
+    title_raw = option.title
     title = title_raw.strip() if isinstance(title_raw, str) else "Selected option"
     if not title:
       title = "Selected option"
@@ -266,12 +261,12 @@ class TelegramPreferenceMessenger:
     raw_data = (query.data or "").strip()
     lowered = raw_data.lower()
     if lowered == "skip":
-      result: ProductChoiceResult = {
-        "decision": "skip",
-        "selected_index": None,
-        "selected_option": None,
-        "make_default": False,
-      }
+      result = ProductChoiceResult(
+        decision="skip",
+        selected_index=None,
+        selected_option=None,
+        make_default=False,
+      )
       await self._resolve_pending(result)
       await context.bot.send_message(
         chat_id=self._settings.chat_id,
@@ -294,7 +289,7 @@ class TelegramPreferenceMessenger:
       idx = int(idx_text)
     except ValueError:
       return
-    options = pending.request["options"]
+    options = pending.request.options
     if idx < 1 or idx > len(options):
       return
     option = options[idx - 1]
@@ -329,12 +324,12 @@ class TelegramPreferenceMessenger:
       return
     lowered = text.lower()
     if lowered == "skip":
-      result: ProductChoiceResult = {
-        "decision": "skip",
-        "selected_index": None,
-        "selected_option": None,
-        "make_default": False,
-      }
+      result = ProductChoiceResult(
+        decision="skip",
+        selected_index=None,
+        selected_option=None,
+        make_default=False,
+      )
       await self._resolve_pending(result)
       await context.bot.send_message(
         chat_id=self._settings.chat_id,
@@ -342,10 +337,10 @@ class TelegramPreferenceMessenger:
         disable_notification=True,
       )
       return
-    parsed = self._parse_selection_text(text, len(pending.request["options"]))
+    parsed = self._parse_selection_text(text, len(pending.request.options))
     if parsed is not None:
       idx, is_default = parsed
-      option = pending.request["options"][idx - 1]
+      option = pending.request.options[idx - 1]
       result = ProductChoiceResult(
         decision="selected",
         selected_index=idx,

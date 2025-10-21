@@ -12,7 +12,13 @@ from gemini_supply.preferences.service import (
   PreferenceItemSession,
   _coerce_options,
 )
-from gemini_supply.preferences.types import NormalizedItem, PreferenceRecord
+from gemini_supply.preferences.types import (
+  NormalizedItem,
+  PreferenceRecord,
+  ProductChoiceRequest,
+  ProductChoiceResult,
+  ProductOption,
+)
 from gemini_supply.preferences.normalizer import NormalizationAgent
 from gemini_supply.preferences.store import PreferenceStore
 from gemini_supply.preferences.messenger import TelegramPreferenceMessenger, TelegramSettings
@@ -40,13 +46,14 @@ class _FakeMessenger:
   def __init__(self, make_default: bool) -> None:
     self._make_default = make_default
 
-  async def request_choice(self, request: object) -> dict[str, object]:
-    return {
-      "decision": "selected",
-      "selected_index": 1,
-      "selected_option": {"title": "Option 1"},
-      "make_default": self._make_default,
-    }
+  async def request_choice(self, request: ProductChoiceRequest) -> ProductChoiceResult:
+    _ = request
+    return ProductChoiceResult(
+      decision="selected",
+      selected_index=1,
+      selected_option=None,
+      make_default=self._make_default,
+    )
 
 
 def _normalized_item(
@@ -118,10 +125,10 @@ def test_coerce_options_normalizes_price_fields() -> None:
       },
     ]
   )
-  assert options[0].get("price_text") == "$4.99"
-  assert options[0].get("price_cents") == 499
-  assert options[1].get("price_text") == "$3.49"
-  assert options[1].get("price_cents") == 349
+  assert options[0].price_text == "$4.99"
+  assert options[0].price_cents == 499
+  assert options[1].price_text == "$3.49"
+  assert options[1].price_cents == 349
 
 
 def test_is_specific_request_detects_brand_and_qualifiers() -> None:
@@ -189,15 +196,13 @@ def test_home_assistant_summary_marks_default_notes() -> None:
 def test_format_option_block_outputs_markdown_lines() -> None:
   settings = TelegramSettings(bot_token="token", chat_id=123, nag_interval=timedelta(minutes=1))
   messenger = TelegramPreferenceMessenger(settings=settings, nag_strings=[])
-  block = messenger._format_option_block(
-    1,
-    {
-      "title": "2L Milk",
-      "price_text": "$4.99",
-      "description": "2L jug",
-      "url": "https://example.com/milk",
-    },
+  option = ProductOption(
+    title="2L Milk",
+    price_text="$4.99",
+    description="2L jug",
+    url="https://example.com/milk",
   )
+  block = messenger._format_option_block(1, option)
   assert block[0] == "1. *2L Milk*"
   assert "Price:" in block[1]
   assert "$4\\.99" in block[1]
@@ -209,10 +214,7 @@ def test_format_acknowledgement_includes_price() -> None:
   messenger = TelegramPreferenceMessenger(settings=settings, nag_strings=[])
   ack = messenger._format_acknowledgement(
     "✅ Noted",
-    {
-      "title": "2L Milk",
-      "price_cents": 499,
-    },
+    ProductOption(title="2L Milk", price_cents=499),
   )
   assert ack.startswith("✅ Noted *2L Milk*")
   assert "$4\\.99" in ack

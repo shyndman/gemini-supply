@@ -29,7 +29,7 @@ Guidance:
 - Handle common abbreviations ("oz", "lb", "kg") when determining quantity or size; sizes should be discarded.
 
 Examples:
-- "2x Lactantia 1% Milk" → {"quantity": 2, "brand": "Lactantia", "category": "Milk", "qualifiers": ["1%"]}
+- "2x Lactantia 1% Milk" → {"quantity": 2, "brand": "Lactantia", "category": "Milk", "qualifiers": ["1%", "lactose-free"]}
 - "Bread" → {"quantity": 1, "brand": null, "category": "Bread", "qualifiers": []}
 - "3 PC Chicken Breasts" → {"quantity": 3, "brand": "PC", "category": "Chicken Breasts", "qualifiers": []}
 - "Dozen eggs" → {"quantity": 12, "brand": null, "category": "Eggs", "qualifiers": []}

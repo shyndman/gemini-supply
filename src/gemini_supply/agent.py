@@ -51,7 +51,7 @@ from gemini_supply.grocery.types import (
 )
 from gemini_supply.log import TTYLogger
 from gemini_supply.preferences.service import PreferenceItemSession
-from gemini_supply.preferences.types import ProductChoiceResult, ProductOption
+from gemini_supply.preferences.types import ProductChoiceResult
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
 PREDEFINED_COMPUTER_USE_FUNCTIONS = [
@@ -90,7 +90,12 @@ class MultiplyResult(TypedDict):
 # Built-in Computer Use tools return EnvState.
 # Custom provided functions return typed dictionaries.
 FunctionResponseT = (
-  EnvState | MultiplyResult | ItemAddedResult | ItemNotFoundResult | ProductChoiceResult
+  EnvState
+  | MultiplyResult
+  | ItemAddedResult
+  | ItemNotFoundResult
+  | ProductChoiceResult
+  | dict[str, object]
 )
 
 CustomFunctionCallable: TypeAlias = Callable[..., FunctionResponseT]
@@ -124,15 +129,16 @@ def report_item_not_found(item_name: str, explanation: str) -> ItemNotFoundResul
 def request_preference_choice(
   canonical_key: str,
   category_label: str,
-  options: list[ProductOption],
+  options: list[dict[str, object]],
 ) -> ProductChoiceResult:
   """Request human input to choose a preferred product.
 
   Args:
     canonical_key: Normalized category slug (e.g., "milk").
     category_label: Human-readable category label (e.g., "Milk").
-    options: Up to 10 structured product options containing `title`, price metadata
-      (`price_text` and `price_cents`), optional `url`, and optional descriptive text.
+    options: Up to 10 structured product option dictionaries containing `title`,
+      price metadata (`price_text` and `price_cents`), optional `url`, and optional
+      descriptive text.
 
   Returns:
     A mapping describing the user's decision (selected index or alternate text).
@@ -335,10 +341,11 @@ class BrowserAgent:
         opts_raw = action.args.get("options")
         if not isinstance(opts_raw, list):
           raise ValueError("request_preference_choice requires an 'options' list.")
-        choice = await self._preference_session.request_choice(opts_raw)  # type: ignore[arg-type]
+        choice_model = await self._preference_session.request_choice(opts_raw)  # type: ignore[arg-type]
+        choice = choice_model.model_dump(mode="python")
         self.last_custom_tool_call = {
           "name": request_preference_choice.__name__,
-          "payload": choice,
+          "payload": choice_model,
         }
         return choice
 
