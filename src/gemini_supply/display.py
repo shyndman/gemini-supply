@@ -105,6 +105,15 @@ def display_image_kitty(png_bytes: bytes, max_width: int | None = None) -> None:
       png_bytes: The PNG image data as bytes
       max_width: Optional maximum width in pixels for the displayed image
   """
+  # Design note:
+  #
+  # Kitty's graphics protocol is designed so that non-supporting terminals simply
+  # ignore the escape sequence. That means it is safe to emit the control codes even
+  # when stdout is not a TTY, is piped through another process, or the terminal is
+  # not Kitty-aware. Any terminal that implements the protocol will render the image;
+  # all others will treat the data as no-ops. Because of this property we deliberately
+  # do *not* gate this function on `isatty()` checks.
+
   # Validate PNG header to surface the most useful failure details early
   valid, reason, width, height, bit_depth, color_type = _parse_png_header(png_bytes)
   ct_label = _COLOR_TYPE_LABELS.get(color_type or -1, "unknown")

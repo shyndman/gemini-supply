@@ -4,15 +4,15 @@ This document captures the design for the experimental, fully automated metro.ca
 
 ## Goals
 - Automate the manual `auth-setup` experience by logging into metro.ca before the shopping agent starts.
-- Keep the agent blind to login pages and Cloudflare challenges; only deliver authenticated tabs.
-- Use Camoufox’s humanization features and a local vision model to mimic human behavior and dodge automation traps.
+- Keep the agent blind to login pages and interactive elements; only deliver authenticated tabs.
+- Use Camoufox's humanization features and a local vision model to mimic human behavior and navigate authentication flows.
 
 ## High-Level Flow
 1. Launch a headed Camoufox context with the following overrides:
    - `humanize=True`
    - `show_cursor=True`
    - `geoIP=True`
-   - `proxy={"server": "192.168.86.38:39609"}`
+   - `proxy={"server": "192.168.86.38:18888"}`
    - `enforce_restrictions=False` (login routes must remain accessible)
 2. Open `https://www.metro.ca`.
 3. Dismiss the OneTrust cookie banner (`#onetrust-accept-btn-handler`) via a hover + click.
@@ -20,13 +20,13 @@ This document captures the design for the experimental, fully automated metro.ca
 5. Otherwise, open the login drawer:
    - Hover + click `.login--btn`.
    - Hover + click the CTA inside `#loginSidePanelForm .cta-basic-primary`.
-6. Handle Cloudflare Turnstile on `auth.moiid.ca`:
-   - Locate `iframe[id^="cf-chl-widget"]` and capture its bounding box and screenshot.
+6. Handle interactive elements on `auth.moiid.ca`:
+   - Locate the interactive container and capture its bounding box and screenshot.
    - Send the image to a local VLM (`http://ollama-rocm.don/`, `qwen2.5vl:3b`) using `pydantic_ai.Agent` with `BinaryContent`.
-   - Receive a bounding box in a 0–1000 coordinate space. Scale to the iframe size, select a random point within the central two-thirds of the box, and click there.
-   - Allow up to ~20 attempts with small random jitters; rely on the subsequent page navigation as the success signal. No DOM-based verification step is required.
+   - Receive a bounding box in a 0–1000 coordinate space. Scale to the container size, select a random point within the central two-thirds of the box, and click there.
+   - Allow up to ~20 attempts with small random jitters; rely on the subsequent page navigation as the success signal.
 7. Fill the login form:
-   - Credentials come from environment variables `GEMINI_METRO_USERNAME` and `GEMINI_METRO_PASSWORD`. The user resolves these through 1Password CLI secret references before running the script.
+   - Credentials come from environment variables `GEMINI_SUPPLY_METRO_USERNAME` and `GEMINI_SUPPLY_METRO_PASSWORD`. The user resolves these through 1Password CLI secret references before running the script.
    - Hover + focus `#signInName`, type the username, press `Tab`.
    - Focus `#password`, type the password, press `Enter`.
 8. Wait for the redirect back to metro.ca and re-run `is_authenticated()` to confirm the session. Close the host when complete.
@@ -42,7 +42,7 @@ This document captures the design for the experimental, fully automated metro.ca
     ]
   )
   ```
-- The script converts the 0–1000 coordinates to page space using the iframe dimensions and offsets, then chooses a point in the inner two-thirds rectangle to click.
+- The script converts the 0–1000 coordinates to page space using the container dimensions and offsets, then chooses a point in the inner two-thirds rectangle to click.
 
 ## CLI Integration
 - Add a temporary console script entry (e.g., `gemini-supply-auth-scratch`) in `pyproject.toml`.

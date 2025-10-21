@@ -19,7 +19,7 @@ concurrency: 3  # number of items to process in parallel (tabs)
 preferences:
   file: "~/.config/gemini-supply/preferences.yaml"  # where canonical mappings are stored
   normalizer_model: "qwen3:1.7b"  # OpenAI-compatible model name used for normalization
-  normalizer_api_base_url: "http://ollama-nvidia.don/v1"  # OpenAI-compatible endpoint (optional)
+  normalizer_api_base_url: "http://ollama/v1"  # OpenAI-compatible endpoint (optional)
   normalizer_api_key: ""  # optional key when hitting remote provider; leave blank for local Ollama
   telegram:
     bot_token: "YOUR_TELEGRAM_BOT_TOKEN"

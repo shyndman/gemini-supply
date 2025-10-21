@@ -75,5 +75,5 @@ Behavior & Notes
 Troubleshooting
 ---------------
 
-- If Turnstile appears during auth, just solve it; the session is persisted.
+- If interactive elements appear during auth, just complete them; the session is persisted.
 - The profile directory persists cookies/tokens automatically. To start fresh, delete the folder or set a different `GEMINI_SUPPLY_USER_DATA_DIR`.

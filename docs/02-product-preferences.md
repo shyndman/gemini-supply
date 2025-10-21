@@ -28,7 +28,7 @@ Introduce a per-item preference system so ambiguous shopping-list entries resolv
 - **Config hook**: Add a `preferences` block to `config.yaml`.
   - `file`: Path (absolute or relative) to the YAML store for canonical mappings.
   - `normalizer_model`: OpenAI-compatible model to use for categorization (default `qwen3:1.7b`).
-  - `normalizer_api_base_url`: Optional base URL for OpenAI-compatible providers (e.g., Ollama `http://ollama-nvidia.don/v1`). If omitted, falls back to environment variables.
+  - `normalizer_api_base_url`: Optional base URL for OpenAI-compatible providers (e.g., Ollama `http://ollama/v1`). If omitted, falls back to environment variables.
   - `normalizer_api_key`: Optional API key for the provider (or use `OPENAI_API_KEY`, `GEMINI_API_KEY`, or provider-specific env vars).
   - `telegram.bot_token`, `telegram.chat_id`: Enable human-in-the-loop prompting.
   - `telegram.nag_minutes` (optional): Reminder cadence, defaults to 30.
