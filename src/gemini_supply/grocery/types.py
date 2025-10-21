@@ -81,5 +81,3 @@ class ShoppingSummary:
   total_cost_text: str = "$0.00"
   default_fills: list[str] = field(default_factory=_empty_str_list)
   new_defaults: list[str] = field(default_factory=_empty_str_list)
-  default_fills: list[str]
-  new_defaults: list[str]
