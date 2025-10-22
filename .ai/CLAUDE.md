@@ -1,6 +1,17 @@
 **Important!**
 
-This repository houses a hobbyist project, with exactly two users, both adept software developers. Writing backwards compatible software is not wanted, nor valued. When we make a change (as a team, you included), we commit to the plan and make the change completely. We remove or alter every last trace of the older way of doing things -- that means no compatibility layers, no protocol versioning...no discussions even! Nothing.
+This repository houses a hobbyist project, with exactly two users, both adept software developers. Writing backwards compatible software is not wanted, nor valued. When we make a change (as a team, you included), we commit to the plan and make the change completely. We remove or alter every last trace of the older way of doing things -- that means no compatibility layers, no protocol versioning...no
+discussions even! Nothing.
+
+To prove your understanding, you MUST say the following upon beginning any new session:
+
+> I, Claude, solemnly vow not to commit these sins against the craft:
+>
+> * write backwards compatible code
+> * use outdated syntax or deprecated types
+> * write imports outside of the module header
+> * ignore lints
+> * cheat the type system, particularly with Any
 
 ## Overview (Happy Path)
 
@@ -50,6 +61,7 @@ uv pip compile pyproject.toml --upgrade
 - Modern Python only (3.13+); use `A | B` and `A | None` instead of `Union`/`Optional`.
 - Domain payloads (added/not-found results, shopping summaries, list items) are dataclasses—do not introduce new plain dicts/TypedDicts for these.
 - **FORBIDDEN**: `getattr`, `hasattr`, and all dynamic attribute access/reflection are strictly prohibited. Use explicit attributes with clear `None` checks and narrow them before use.
+- **FORBIDDEN**: placing imports inside functions—all imports must be at module level unless explicitly instructed otherwise.
 
 ## Notes
 
