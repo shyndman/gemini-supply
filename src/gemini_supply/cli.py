@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from pathlib import Path
-from typing import Callable, Literal, Sequence
+from typing import Callable, Sequence
 
 import clypi.parsers as cp
 from clypi import Command, arg
@@ -15,21 +15,21 @@ from gemini_supply.shopping import ConcurrencySetting, ShoppingSettings, run_sho
 PLAYWRIGHT_SCREEN_SIZE = (1440, 900)
 
 
-def _parse_concurrency(raw: str) -> int | Literal["len"]:
+def _parse_concurrency(raw: str) -> ConcurrencySetting:
   value = raw.strip().lower()
   if value == "len":
-    return "len"
+    return ConcurrencySetting.from_inputs("len", None)
   try:
     parsed = int(value)
   except ValueError as exc:
-    raise ValueError("concurrency must be a non-negative integer or 'len'") from exc
-  if parsed < 0:
-    raise ValueError("concurrency must be a non-negative integer or 'len'")
-  return parsed
+    raise ValueError("concurrency must be a positive integer or 'len'") from exc
+  if parsed < 1:
+    raise ValueError("concurrency must be a positive integer or 'len'")
+  return ConcurrencySetting.from_inputs(parsed, None)
 
 
-def _concurrency_parser() -> Callable[[Sequence[str] | str], int | Literal["len"]]:
-  def _parser(raw: Sequence[str] | str) -> int | Literal["len"]:
+def _concurrency_parser() -> Callable[[Sequence[str] | str], ConcurrencySetting]:
+  def _parser(raw: Sequence[str] | str) -> ConcurrencySetting:
     if isinstance(raw, str):
       return _parse_concurrency(raw)
     if not raw:
@@ -51,8 +51,8 @@ class Shop(Command):
     timedelta(minutes=5), help="Time budget per item", parser=cp.TimeDelta()
   )
   max_turns: int = arg(40, help="Max agent turns per item")
-  concurrency: int | Literal["len"] = arg(
-    0,
+  concurrency: ConcurrencySetting = arg(
+    ConcurrencySetting.from_inputs("len", None),
     help="Number of items to process in parallel (tabs). Use 'len' to match item count (max 20).",
     parser=_concurrency_parser(),
   )
@@ -70,7 +70,7 @@ class Shop(Command):
     config = load_config(config_path)
     postal_code = config.postal_code
     concurrency_setting = ConcurrencySetting.from_inputs(
-      cli_value=self.concurrency,
+      cli_value=self.concurrency.requested,
       config_value=config.concurrency.requested,
     )
     settings = ShoppingSettings(
