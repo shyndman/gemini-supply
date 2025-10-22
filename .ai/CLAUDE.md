@@ -37,7 +37,7 @@ uv run gemini-supply shop --shopping-list ~/.config/gemini-supply/shopping_list.
 uv run ruff check .
 uv run ruff format .
 uv run pyright
-uv run pytest -q
+uv run pytest -n auto -q
 # If deps change, regenerate uv.lock
 uv pip compile pyproject.toml --upgrade
 ```

@@ -53,3 +53,8 @@ reportUnknownArgumentType = "error"
 reportUnknownParameterType = "error"
 venvPath = "."
 venv = ".venv"
+
+[dependency-groups]
+dev = [
+    "pytest-xdist>=3.8.0",
+]
