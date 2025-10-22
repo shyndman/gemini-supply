@@ -14,11 +14,8 @@ from gemini_supply import (
   AppConfig,
   AuthManager,
   BrowserAgent,
-  HomeAssistantShoppingListConfig,
   PreferencesConfig,
-  ShoppingListConfig,
   TTYLogger,
-  YAMLShoppingListConfig,
   build_camoufox_options,
   resolve_camoufox_exec,
   resolve_profile_dir,
@@ -57,7 +54,7 @@ from gemini_supply.shopping import (
 
 @dataclass(slots=True)
 class PreferenceResources:
-  coordinator: PreferenceCoordinator | None = None
+  coordinator: PreferenceCoordinator
   messenger: TelegramPreferenceMessenger | None = None
 
   async def stop(self) -> None:
@@ -70,13 +67,11 @@ async def run_shopping(
   list_path: Path | None,
   settings: ShoppingSettings,
   no_retry: bool = False,
-  config: AppConfig | None = None,
-  config_path: Path | None = None,
+  config: AppConfig,
 ) -> int:
-  config_obj = config if config is not None else load_config(config_path or DEFAULT_CONFIG_PATH)
-  provider = _build_provider(list_path, config_obj, no_retry)
+  provider = _build_provider(list_path, config.shopping_list, no_retry)
   logger = TTYLogger()
-  preferences = await _setup_preferences(config_obj.preferences if config_obj else None)
+  preferences = await _setup_preferences(config.preferences)
 
   try:
     results = await _run_shopping_flow(provider, settings, logger, preferences)
@@ -88,28 +83,24 @@ async def run_shopping(
 
 
 def _build_provider(
-  list_path: Path | None, config: AppConfig | None, no_retry: bool
+  list_path: Path | None, config: ShoppingListConfig, no_retry: bool
 ) -> ShoppingListProvider:
-  if (
-    config is not None
-    and config.shopping_list is not None
-    and config.shopping_list.provider == "home_assistant"
-  ):
-    ha = config.home_assistant
-    if ha is None or not ha.url or not ha.token:
-      raise ValueError("home_assistant.url and home_assistant.token are required in config")
-    return HomeAssistantShoppingListProvider(ha_url=ha.url, token=ha.token, no_retry=no_retry)
+  if isinstance(config, HomeAssistantShoppingListConfig):
+    return HomeAssistantShoppingListProvider(
+      ha_url=config.url, token=config.token, no_retry=no_retry
+    )
 
-  if list_path is None:
-    raise ValueError("--shopping-list is required for YAML provider")
-  return YAMLShoppingListProvider(path=list_path)
+  if isinstance(config, YAMLShoppingListConfig):
+    path = list_path or config.path
+    if path is None:
+      raise ValueError("A shopping list path must be provided for the YAML provider")
+    return YAMLShoppingListProvider(path=path)
+
+  raise ValueError("Unsupported shopping list configuration")
 
 
-async def _setup_preferences(pref_cfg: PreferencesConfig | None) -> PreferenceResources:
-  if pref_cfg is None:
-    return PreferenceResources()
-
-  pref_path = Path(pref_cfg.file or "~/.config/gemini-supply/preferences.yaml").expanduser()
+async def _setup_preferences(pref_cfg: PreferencesConfig) -> PreferenceResources:
+  pref_path = pref_cfg.file
   store = PreferenceStore(pref_path)
   normalizer = NormalizationAgent(
     model_name=pref_cfg.normalizer_model or DEFAULT_NORMALIZER_MODEL,
@@ -118,14 +109,14 @@ async def _setup_preferences(pref_cfg: PreferencesConfig | None) -> PreferenceRe
   )
   messenger: TelegramPreferenceMessenger | None = None
   tel_cfg = pref_cfg.telegram
-  if tel_cfg is not None and tel_cfg.bot_token and tel_cfg.chat_id is not None:
-    nag_minutes = tel_cfg.nag_minutes or 30
-    settings = TelegramSettings(
+  messenger = TelegramPreferenceMessenger(
+    settings=TelegramSettings(
       bot_token=tel_cfg.bot_token,
       chat_id=tel_cfg.chat_id,
-      nag_interval=timedelta(minutes=nag_minutes),
-    )
-    messenger = TelegramPreferenceMessenger(settings=settings, nag_strings=DEFAULT_NAG_STRINGS)
+      nag_interval=timedelta(minutes=tel_cfg.nag_minutes),
+    ),
+    nag_strings=DEFAULT_NAG_STRINGS,
+  )
 
   coordinator = PreferenceCoordinator(
     normalizer=normalizer,
@@ -151,7 +142,18 @@ async def _run_shopping_flow(
     termcolor.cprint("No uncompleted items found.", color="yellow")
     return ShoppingResults()
 
+  termcolor.cprint(
+    f"Loaded shopping list with {len(items)} item{'s' if len(items) != 1 else ''}:",
+    color="magenta",
+  )
+  for entry in items:
+    termcolor.cprint(
+      f"  • {entry.name} (id={entry.id}, status={entry.status.value})",
+      color="magenta",
+    )
+
   effective_concurrency = settings.concurrency.resolve(items, provider)
+  termcolor.cprint(f"Resolved concurrency: {effective_concurrency}", color="cyan")
 
   env_h = os.environ.get("PLAYWRIGHT_HEADLESS", "").strip().lower()
   if env_h in ("virtual", "v"):
@@ -162,6 +164,11 @@ async def _run_shopping_flow(
     headless_mode = True
   else:
     headless_mode = "virtual"
+
+  termcolor.cprint(
+    f"Resolved headless mode: {'virtual' if headless_mode == 'virtual' else 'headed' if headless_mode is False else 'headless'}",
+    color="cyan",
+  )
 
   async with CamoufoxHost(
     screen_size=settings.screen_size,
@@ -313,8 +320,8 @@ async def _process_item(
 async def _handle_processing_exception(
   item: ShoppingListItem, exc: Exception, provider: ShoppingListProvider
 ) -> None:
-  import traceback
   import sys
+  import traceback
 
   tb = traceback.format_exc()
   termcolor.cprint("Exception while shopping item:", color="red")
@@ -433,6 +440,10 @@ async def _shop_single_item_in_tab(
   for attempt in range(1, max_attempts + 1):
     needs_retry = False
     tab = await host.new_tab()
+    termcolor.cprint(
+      f"[agent] Launching browser agent for '{item.name}' (attempt {attempt}/{max_attempts}).",
+      color="blue",
+    )
     agent: BrowserAgent | None = None
     start = time.monotonic()
     budget_seconds = time_budget.total_seconds()

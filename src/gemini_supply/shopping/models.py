@@ -96,11 +96,11 @@ class ShoppingResults:
 @dataclass(slots=True)
 class ConcurrencySetting:
   requested: int | Literal["len"] | None
-  config_fallback: int | None
+  config_fallback: int | Literal["len"] | None
 
   @classmethod
   def from_inputs(
-    cls, cli_value: int | Literal["len"] | None, config_value: int | None
+    cls, cli_value: int | Literal["len"] | None, config_value: int | Literal["len"] | None
   ) -> ConcurrencySetting:
     return cls(requested=cli_value, config_fallback=config_value)
 
@@ -114,7 +114,9 @@ class ConcurrencySetting:
       return "len"
     if isinstance(self.requested, int) and self.requested > 0:
       return self.requested
-    if self.config_fallback is not None and self.config_fallback > 0:
+    if self.config_fallback == "len":
+      return "len"
+    if isinstance(self.config_fallback, int) and self.config_fallback > 0:
       return self.config_fallback
     return 1
 

@@ -81,29 +81,13 @@ class SafetyDecision(TypedDict):
   explanation: str
 
 
-class MultiplyResult(TypedDict):
-  """Type definition for multiply_numbers result."""
-
-  result: float
-
-
 # Built-in Computer Use tools return EnvState.
 # Custom provided functions return typed dictionaries.
 FunctionResponseT = (
-  EnvState
-  | MultiplyResult
-  | ItemAddedResult
-  | ItemNotFoundResult
-  | ProductChoiceResult
-  | dict[str, object]
+  EnvState | ItemAddedResult | ItemNotFoundResult | ProductChoiceResult | dict[str, object]
 )
 
 CustomFunctionCallable: TypeAlias = Callable[..., FunctionResponseT]
-
-
-def multiply_numbers(x: float, y: float) -> MultiplyResult:
-  """Multiplies two numbers."""
-  return {"result": x * y}
 
 
 def report_item_added(
@@ -189,7 +173,6 @@ class BrowserAgent:
 
     self._excluded_predefined_functions = excluded_predefined_functions
     self._custom_function_callables: list[CustomFunctionCallable] = [
-      multiply_numbers,
       report_item_added,
       report_item_not_found,
       request_preference_choice,
@@ -304,10 +287,6 @@ class BrowserAgent:
           destination_x=destination_x,
           destination_y=destination_y,
         )
-
-      # Handle custom function declarations here
-      case name if name == multiply_numbers.__name__:
-        return multiply_numbers(x=action.args["x"], y=action.args["y"])
 
       case name if name == report_item_added.__name__:
         result = report_item_added(
@@ -623,7 +602,7 @@ class BrowserAgent:
 
   class _CustomToolCall(TypedDict):
     name: str
-    payload: ItemAddedResult | ItemNotFoundResult | MultiplyResult | ProductChoiceResult
+    payload: ItemAddedResult | ItemNotFoundResult | ProductChoiceResult
 
   last_custom_tool_call: _CustomToolCall | None = None
 

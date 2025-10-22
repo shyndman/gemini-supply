@@ -20,6 +20,15 @@ class PageStub:
   async def close(self) -> None:
     self.closed = True
 
+  async def wait_for_load_state(self, *_: object, **__: object) -> None:
+    return None
+
+  async def goto(self, url: str, **__: object) -> None:
+    self.url = url
+
+  def is_closed(self) -> bool:
+    return self.closed
+
 
 class ContextStub:
   def __init__(self, pages: list[PageStub] | None = None) -> None:
@@ -102,4 +111,5 @@ async def test_auth_manager_checks_new_page_when_empty() -> None:
   await manager.ensure_authenticated()
   assert host.flow_calls == 0
   assert host.created_pages, "Expected AuthManager to open a page when none existed."
-  assert host.created_pages[0].closed is True
+  assert host.created_pages[0].closed is False
+  assert host.created_pages[0].url.startswith("about:blank#keepalive")

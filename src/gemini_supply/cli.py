@@ -51,7 +51,6 @@ class Shop(Command):
     timedelta(minutes=5), help="Time budget per item", parser=cp.TimeDelta()
   )
   max_turns: int = arg(40, help="Max agent turns per item")
-  postal_code: str | None = arg(None, help="Postal code to use; may also be set in config")
   concurrency: int | Literal["len"] = arg(
     0,
     help="Number of items to process in parallel (tabs). Use 'len' to match item count (max 20).",
@@ -69,14 +68,10 @@ class Shop(Command):
   async def run(self) -> None:
     config_path = self.config.expanduser() if self.config else DEFAULT_CONFIG_PATH
     config = load_config(config_path)
-    postal_code = self.postal_code or (
-      config.postal_code if config and config.postal_code else None
-    )
-    if not postal_code:
-      raise ValueError("Postal code is required via --postal-code or config postal_code")
+    postal_code = config.postal_code
     concurrency_setting = ConcurrencySetting.from_inputs(
       cli_value=self.concurrency,
-      config_value=config.concurrency if config else None,
+      config_value=config.concurrency,
     )
     settings = ShoppingSettings(
       model_name=self.model,
@@ -92,7 +87,6 @@ class Shop(Command):
       settings=settings,
       no_retry=self.no_retry,
       config=config,
-      config_path=config_path,
     )
 
 

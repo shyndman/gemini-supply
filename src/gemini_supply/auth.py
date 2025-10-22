@@ -70,13 +70,14 @@ class AuthManager:
       self._last_success = time.monotonic()
 
   async def _session_is_valid(self) -> bool:
-    pages = list(self._host.context.pages)
+    context_pages = list(self._host.context.pages)
+    pages = [page for page in context_pages if not _is_keepalive_page(page)]
     if not pages:
       page = await self._host.new_page()
       try:
-        return await self._host.is_authenticated(page)
+        return await _check_session_via_promotions(self._host, page)
       finally:
-        await page.close()
+        await _ensure_keepalive_tab(self._host, preserve=page)
 
     for page in pages:
       try:
@@ -103,13 +104,13 @@ async def _perform_login(host: CamoufoxHost) -> None:
   page = await host.new_page()
   try:
     await page.wait_for_load_state("domcontentloaded")
-    if await host.is_authenticated(page):
-      termcolor.cprint("[auth] Existing authenticated session detected; skipping login.", "yellow")
-      return
-
     await _accept_cookies(page)
     await _open_promotions(page)
     await page.wait_for_load_state()
+
+    if await host.is_authenticated(page):
+      termcolor.cprint("[auth] Existing authenticated session detected; skipping login.", "yellow")
+      return
 
     async with ClickSolver(framework=FrameworkType.CAMOUFOX, page=page) as solver:
       await _launch_login_drawer(page)
@@ -121,7 +122,7 @@ async def _perform_login(host: CamoufoxHost) -> None:
     termcolor.cprint(f"[auth] Authenticated via {final_page.url}", "green")
   finally:
     try:
-      await page.close()
+      await _ensure_keepalive_tab(host, preserve=page)
     except Exception:
       pass
 
@@ -134,6 +135,60 @@ def _resolve_credentials() -> AuthCredentials:
       "Set GEMINI_SUPPLY_METRO_USERNAME and GEMINI_SUPPLY_METRO_PASSWORD for automated auth."
     )
   return AuthCredentials(username=username, password=password)
+
+
+async def _check_session_via_promotions(host: CamoufoxHost, page: Page) -> bool:
+  try:
+    await page.wait_for_load_state("domcontentloaded")
+  except AttributeError:
+    return await host.is_authenticated(page)
+
+  try:
+    await _accept_cookies(page)
+    try:
+      await _open_promotions(page)
+    except PlaywrightTimeout:
+      termcolor.cprint("[auth] Promotions link unavailable during session check.", "yellow")
+    else:
+      await page.wait_for_load_state()
+  except AttributeError:
+    return await host.is_authenticated(page)
+  return await host.is_authenticated(page)
+
+
+async def _ensure_keepalive_tab(host: CamoufoxHost, *, preserve: Page) -> None:
+  context = host.context
+  if _page_is_closed(preserve):
+    return
+
+  real_pages = [p for p in context.pages if p is not preserve and not _is_keepalive_page(p)]
+
+  if real_pages:
+    try:
+      await preserve.close()
+    except Exception:
+      pass
+    return
+
+  # Reuse the preserve page as keepalive when it would otherwise be the last tab.
+  try:
+    await preserve.goto("about:blank#keepalive", wait_until="domcontentloaded")
+  except Exception:
+    pass
+
+
+def _is_keepalive_page(page: Page) -> bool:
+  try:
+    return page.url.startswith("about:blank#keepalive")
+  except Exception:
+    return False
+
+
+def _page_is_closed(page: Page) -> bool:
+  try:
+    return bool(page.is_closed())
+  except Exception:
+    return False
 
 
 async def _accept_cookies(page: Page) -> None:
