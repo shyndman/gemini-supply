@@ -3,14 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import timedelta
 from enum import StrEnum
-from typing import Literal, Sequence
+from typing import Literal
 
 from gemini_supply.computers import ScreenSize
-from gemini_supply.grocery import ShoppingListProvider, YAMLShoppingListProvider
+from gemini_supply.config import ConcurrencyConfig
 from gemini_supply.grocery.types import (
   ItemAddedResult,
   ItemNotFoundResult,
-  ShoppingListItem,
   ShoppingSummary,
 )
 
@@ -94,69 +93,9 @@ class ShoppingResults:
 
 
 @dataclass(slots=True)
-class ConcurrencySetting:
-  requested: int | Literal["len"] | None
-  config_fallback: int | Literal["len"] | None
-
-  @classmethod
-  def from_inputs(
-    cls, cli_value: int | Literal["len"] | None, config_value: int | Literal["len"] | None
-  ) -> ConcurrencySetting:
-    return cls(requested=cli_value, config_fallback=config_value)
-
-  def resolve(self, items: Sequence[ShoppingListItem], provider: ShoppingListProvider) -> int:
-    base = self._base_value()
-    effective = self._materialize_len(base, len(items))
-    return self._apply_provider_caps(effective, provider)
-
-  def _base_value(self) -> int | Literal["len"]:
-    if self.requested == "len":
-      return "len"
-    if isinstance(self.requested, int) and self.requested > 0:
-      return self.requested
-    if self.config_fallback == "len":
-      return "len"
-    if isinstance(self.config_fallback, int) and self.config_fallback > 0:
-      return self.config_fallback
-    return 1
-
-  @staticmethod
-  def _materialize_len(base: int | Literal["len"], item_count: int) -> int:
-    if base == "len":
-      return 1 if item_count <= 0 else min(item_count, 20)
-    return base
-
-  @staticmethod
-  def _apply_provider_caps(value: int, provider: ShoppingListProvider) -> int:
-    if isinstance(provider, YAMLShoppingListProvider) and value > 1:
-      import termcolor
-
-      termcolor.cprint(
-        "YAML provider does not support parallel writes; forcing concurrency=1.",
-        color="yellow",
-      )
-      return 1
-    return value
-
-
-@dataclass(slots=True)
 class ShoppingSettings:
   model_name: str
-  highlight_mouse: bool
   screen_size: ScreenSize
   time_budget: timedelta
   max_turns: int
-  postal_code: str
-  concurrency: ConcurrencySetting
-
-
-__all__ = [
-  "LoopStatus",
-  "AddedOutcome",
-  "NotFoundOutcome",
-  "FailedOutcome",
-  "Outcome",
-  "ShoppingResults",
-  "ConcurrencySetting",
-  "ShoppingSettings",
-]
+  concurrency: ConcurrencyConfig

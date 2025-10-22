@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import textwrap
 import time
 from dataclasses import dataclass
 from datetime import timedelta
@@ -29,6 +30,15 @@ from gemini_supply.grocery import (
   YAMLShoppingListProvider,
 )
 from gemini_supply.log import TTYLogger
+from gemini_supply.models import (
+  AddedOutcome,
+  FailedOutcome,
+  LoopStatus,
+  NotFoundOutcome,
+  Outcome,
+  ShoppingResults,
+  ShoppingSettings,
+)
 from gemini_supply.preferences import (
   DEFAULT_NAG_STRINGS,
   DEFAULT_NORMALIZER_MODEL,
@@ -42,15 +52,6 @@ from gemini_supply.preferences import (
   TelegramSettings,
 )
 from gemini_supply.profile import resolve_camoufox_exec, resolve_profile_dir
-from gemini_supply.shopping import (
-  AddedOutcome,
-  FailedOutcome,
-  LoopStatus,
-  NotFoundOutcome,
-  Outcome,
-  ShoppingResults,
-  ShoppingSettings,
-)
 
 
 @dataclass(slots=True)
@@ -153,7 +154,7 @@ async def _run_shopping_flow(
       color="magenta",
     )
 
-  effective_concurrency = settings.concurrency.resolve(items, provider)
+  effective_concurrency = settings.concurrency.resolve(len(items))
   termcolor.cprint(f"Resolved concurrency: {effective_concurrency}", color="cyan")
 
   env_h = os.environ.get("PLAYWRIGHT_HEADLESS", "").strip().lower()
@@ -175,7 +176,7 @@ async def _run_shopping_flow(
     screen_size=settings.screen_size,
     user_data_dir=profile_dir,
     initial_url="https://www.metro.ca",
-    highlight_mouse=settings.highlight_mouse,
+    highlight_mouse=True,
     enforce_restrictions=True,
     executable_path=camoufox_exec,
     headless=headless_mode,
@@ -286,16 +287,15 @@ async def _process_item(
   preferences: PreferenceResources,
   auth_manager: AuthManager,
 ) -> Outcome:
-  preference_session: PreferenceItemSession | None = None
   existing_preference: PreferenceRecord | None = None
   specific_request = False
   await auth_manager.ensure_authenticated()
-  if preferences.coordinator is not None:
-    normalized = await preferences.coordinator.normalize_item(item.name)
-    preference_session = preferences.coordinator.create_session(normalized)
-    specific_request = _is_specific_request(normalized)
-    if not specific_request:
-      existing_preference = await preference_session.existing_preference()
+
+  normalized = await preferences.coordinator.normalize_item(item.name)
+  preference_session = preferences.coordinator.create_session(normalized)
+  specific_request = _is_specific_request(normalized)
+  if not specific_request:
+    existing_preference = await preference_session.existing_preference()
 
   try:
     return await _shop_single_item_in_tab(
@@ -303,10 +303,8 @@ async def _process_item(
       item=item,
       provider=provider,
       model_name=settings.model_name,
-      highlight_mouse=settings.highlight_mouse,
       time_budget=settings.time_budget,
       max_turns=settings.max_turns,
-      postal_code=settings.postal_code,
       logger=logger,
       preference_session=preference_session,
       existing_preference=existing_preference,
@@ -338,73 +336,52 @@ def _is_specific_request(normalized: NormalizedItem) -> bool:
 
 def _build_task_prompt(
   item_name: str,
-  postal_code: str,
-  normalized: NormalizedItem | None,
+  normalized: NormalizedItem,
   preference: PreferenceRecord | None,
-  can_request_choice: bool,
   specific_request: bool,
 ) -> str:
-  normalized_lines: list[str] = []
-  if normalized is not None:
-    normalized_lines.append(
-      f"Normalized category: {normalized.category_label} (key: {normalized.canonical_key})"
-    )
-    if normalized.brand:
-      normalized_lines.append(f"Detected brand: {normalized.brand}")
-    if normalized.qualifiers:
-      normalized_lines.append(f"Qualifiers: {', '.join(normalized.qualifiers)}")
-    normalized_lines.append(f"Original text: {normalized.original_text}")
-    normalized_lines.append("")
-    if specific_request:
-      normalized_lines.append("Specific request detected; ignore previously stored defaults.")
-      normalized_lines.append("")
-  preference_lines: list[str] = []
-  if preference is not None:
-    preference_lines.append("Known preference available:")
-    preference_lines.append(f"  - Product: {preference.product_name}")
-    preference_lines.append(f"  - URL: {preference.product_url}")
-    preference_lines.append(
-      "  Always prioritise this product unless it is unavailable or clearly incorrect."
-    )
-    preference_lines.append("")
-  instructions = [
-    "Instructions:",
-    "  1. Use metro.ca to find the product.",
-    "  2. Prefer using navigate to open the search results page (SRP) directly: ",
-    "     https://www.metro.ca/en/online-grocery/search?filter={ENCODED_QUERY}",
-    "     Otherwise, use the header search input present on all pages.",
-    "  3. From the SRP, choose the best-matching result. CLICK THE PRODUCT IMAGE or name to open the product's page.",
-    "  4. On the product page, press 'Add to Cart'. If a postal code form appears, enter the postal code exactly as:",
-    f"     {postal_code}",
-    '     If the "Delivery or Pickup?" form appears, click the "I haven\'t made my choice yet" link at the bottom to defer selection, then press \'Add to Cart\' again on the product page.',
-    "  5. Verify success: The 'Add to Cart' button becomes a quantity control (with +/−).",
-    "     If it does not change, try again or explain why it failed.",
-    "  6. Call report_item_added(item_name, price_text, price_cents, url, quantity) when successful.",
-    "     The 'url' MUST be the product page URL (NOT the search results page).",
-    "  7. If product cannot be located after reasonable attempts, call report_item_not_found(item_name, explanation).",
-  ]
-  if can_request_choice:
-    instructions.extend(
-      [
-        "  8. When you cannot confidently pick a product, call request_preference_choice with up to 10 promising SRP results.",
-        "     Include title, price_text (currency string), price_cents (integer), and the product URL for each option.",
-        "     Wait for the response before continuing.",
-      ]
-    )
-  instructions_text = "\n".join(instructions) + "\n\n"
-  header = f"Goal: Add ONE specific item to metro.ca cart\nItem: {item_name}\n\n"
-  constraints = (
-    "Constraints:\n"
-    "  - Stay on metro.ca and allowed resources only.\n"
-    "  - Do NOT navigate to checkout, payment, or account pages.\n"
-    "  - Focus solely on adding the requested item.\n"
-  )
-  return (
-    header
-    + "\n".join(normalized_lines)
-    + "".join(preference_lines)
-    + instructions_text
-    + constraints
+  # Build conditional sections
+  return "".join(
+    [
+      f"Detected brand: {normalized.brand}\n" if normalized.brand else "",
+      f"Qualifiers: {', '.join(normalized.qualifiers)}\n" if normalized.qualifiers else "",
+      "Specific request detected; ignore previously stored defaults.\n\n"
+      if specific_request
+      else "",
+      textwrap.dedent(f"""
+      Known preference available:
+      - Product: {preference.product_name}
+      - URL: {preference.product_url}
+      Always prioritise this product unless it is unavailable or clearly incorrect.
+
+      """)
+      if preference is not None
+      else "",
+      textwrap.dedent("""
+      Instructions:
+
+      1. Use metro.ca to find the product.
+      2. Prefer using navigate to open the search results page (SRP) directly:
+        https://www.metro.ca/en/online-grocery/search?filter={{ENCODED_QUERY}}
+        Otherwise, use the header search input present on all pages.
+      3. From the SRP, choose the best-matching result. CLICK THE PRODUCT IMAGE or name to open the product's page.
+      4. On the product page, press 'Add to Cart'.
+        If the "Delivery or Pickup?" form appears, click the "I haven't made my choice yet" link at the bottom to defer selection, then press 'Add to Cart' again on the product page.
+      5. Verify success: The 'Add to Cart' button becomes a quantity control (with +/−).
+        If it does not change, try again or explain why it failed.
+      6. Call report_item_added(item_name, price_text, price_cents, url, quantity) when successful.
+        The 'url' MUST be the product page URL (NOT the search results page).
+      7. If product cannot be located after reasonable attempts, call report_item_not_found(item_name, explanation).
+      8. When you cannot confidently pick a product, call request_preference_choice with up to 10 promising SRP results.
+        Include title, price_text (currency string), price_cents (integer), and the product URL for each option.
+        Wait for the response before continuing.
+
+      Constraints:
+        - Stay on metro.ca and allowed resources only.
+        - Do NOT navigate to checkout, payment, or account pages.
+        - Focus solely on adding the requested item.
+  """),
+    ]
   )
 
 
@@ -414,27 +391,20 @@ async def _shop_single_item_in_tab(
   item: ShoppingListItem,
   provider: ShoppingListProvider,
   model_name: str,
-  highlight_mouse: bool,
   time_budget: timedelta,
   max_turns: int,
-  postal_code: str,
-  logger: TTYLogger | None = None,
-  preference_session: PreferenceItemSession | None = None,
+  logger: TTYLogger,
+  preference_session: PreferenceItemSession,
   existing_preference: PreferenceRecord | None = None,
   specific_request: bool = False,
   auth_manager: AuthManager,
 ) -> Outcome:
   termcolor.cprint(f"🛒 (tab) Shopping for: {item.name}", color="cyan")
-  normalized = preference_session.normalized if preference_session is not None else None
-  can_request_choice = (
-    preference_session.can_request_choice if preference_session is not None else False
-  )
+  normalized = preference_session.normalized
   prompt = _build_task_prompt(
     item.name,
-    postal_code,
     normalized,
     existing_preference,
-    can_request_choice,
     specific_request,
   )
   max_attempts = 2
