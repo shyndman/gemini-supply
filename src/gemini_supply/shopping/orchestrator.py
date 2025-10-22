@@ -10,17 +10,16 @@ from typing import Literal, Sequence
 
 import termcolor
 
-from gemini_supply import (
-  AppConfig,
-  AuthManager,
-  BrowserAgent,
-  PreferencesConfig,
-  TTYLogger,
-  build_camoufox_options,
-  resolve_camoufox_exec,
-  resolve_profile_dir,
-)
+from gemini_supply.agent import BrowserAgent
+from gemini_supply.auth import AuthManager, build_camoufox_options
 from gemini_supply.computers import AuthExpiredError, CamoufoxHost
+from gemini_supply.config import (
+  AppConfig,
+  HomeAssistantShoppingListConfig,
+  PreferencesConfig,
+  ShoppingListConfig,
+  YAMLShoppingListConfig,
+)
 from gemini_supply.grocery import (
   HomeAssistantShoppingListProvider,
   ItemAddedResult,
@@ -29,6 +28,7 @@ from gemini_supply.grocery import (
   ShoppingListProvider,
   YAMLShoppingListProvider,
 )
+from gemini_supply.log import TTYLogger
 from gemini_supply.preferences import (
   DEFAULT_NAG_STRINGS,
   DEFAULT_NORMALIZER_MODEL,
@@ -41,6 +41,7 @@ from gemini_supply.preferences import (
   TelegramPreferenceMessenger,
   TelegramSettings,
 )
+from gemini_supply.profile import resolve_camoufox_exec, resolve_profile_dir
 from gemini_supply.shopping import (
   AddedOutcome,
   FailedOutcome,

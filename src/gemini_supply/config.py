@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+import yaml
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+
+from gemini_supply.shopping.models import ConcurrencySetting
 
 
 DEFAULT_CONFIG_PATH = Path("~/.config/gemini-supply/config.yaml").expanduser()
@@ -115,7 +119,9 @@ class AppConfig(BaseModel):
 
   shopping_list: ShoppingListConfig
   postal_code: str
-  concurrency: int | Literal["len"] = "len"
+  concurrency: ConcurrencySetting = Field(
+    default_factory=lambda: ConcurrencySetting.from_inputs("len", None)
+  )
   preferences: PreferencesConfig
 
   @field_validator("postal_code", mode="after")
@@ -128,13 +134,15 @@ class AppConfig(BaseModel):
 
   @field_validator("concurrency", mode="before")
   @classmethod
-  def _coerce_concurrency(cls, value: object) -> int | Literal["len"]:
+  def _coerce_concurrency(cls, value: object) -> ConcurrencySetting:
     if value is None:
-      return "len"
+      return ConcurrencySetting.from_inputs("len", None)
+    if isinstance(value, ConcurrencySetting):
+      return value
     if isinstance(value, str):
       lowered = value.strip().lower()
       if lowered == "len":
-        return "len"
+        return ConcurrencySetting.from_inputs("len", None)
       try:
         value = int(lowered)
       except ValueError as exc:
@@ -144,7 +152,7 @@ class AppConfig(BaseModel):
     if isinstance(value, int):
       if value < 1:
         raise ValueError("concurrency must be an integer greater than or equal to 1")
-      return value
+      return ConcurrencySetting.from_inputs(value, None)
     raise ValueError("concurrency must be an integer or 'len'")
 
 

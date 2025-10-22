@@ -7,7 +7,7 @@ from typing import Optional
 from rich.console import Console
 from rich.table import Table
 
-from gemini_supply import display_image_kitty
+from gemini_supply.display import display_image_kitty
 
 
 def setup_logging() -> None:

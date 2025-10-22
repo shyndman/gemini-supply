@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from datetime import timedelta
 from pathlib import Path
 from typing import Callable, Literal, Sequence
@@ -8,9 +9,8 @@ from clypi import Command, arg
 from typing_extensions import override
 
 from gemini_supply.computers import ScreenSize
-from gemini_supply import DEFAULT_CONFIG_PATH, load_config
-from gemini_supply.shopping import run_shopping
-from gemini_supply.shopping import ConcurrencySetting, ShoppingSettings
+from gemini_supply.config import DEFAULT_CONFIG_PATH, load_config
+from gemini_supply.shopping import ConcurrencySetting, ShoppingSettings, run_shopping
 
 PLAYWRIGHT_SCREEN_SIZE = (1440, 900)
 
@@ -71,7 +71,7 @@ class Shop(Command):
     postal_code = config.postal_code
     concurrency_setting = ConcurrencySetting.from_inputs(
       cli_value=self.concurrency,
-      config_value=config.concurrency,
+      config_value=config.concurrency.requested,
     )
     settings = ShoppingSettings(
       model_name=self.model,

@@ -5,25 +5,26 @@ from typing import cast
 
 import pytest
 
-from gemini_supply.grocery import HomeAssistantShoppingListProvider
-from gemini_supply.grocery import ItemAddedResult, ShoppingSummary
-from gemini_supply.preferences import (
-  PreferenceCoordinator,
-  PreferenceItemSession,
-  _coerce_options,
+from gemini_supply.grocery import (
+  HomeAssistantShoppingListProvider,
+  ItemAddedResult,
+  ShoppingSummary,
 )
 from gemini_supply.preferences import (
+  NormalizationAgent,
   NormalizedItem,
+  PreferenceCoordinator,
+  PreferenceItemSession,
   PreferenceRecord,
+  PreferenceStore,
   ProductChoiceRequest,
   ProductChoiceResult,
   ProductOption,
+  TelegramPreferenceMessenger,
+  TelegramSettings,
+  _coerce_options,
 )
-from gemini_supply.preferences import NormalizationAgent
-from gemini_supply.preferences import PreferenceStore
-from gemini_supply.preferences import TelegramPreferenceMessenger, TelegramSettings
-from gemini_supply.shopping import AddedOutcome, ShoppingResults
-from gemini_supply.shopping import _is_specific_request
+from gemini_supply.shopping import AddedOutcome, ShoppingResults, _is_specific_request
 
 
 class _DummyNormalizer:

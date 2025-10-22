@@ -5,7 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 DEFAULT_PROFILE = Path("~/.config/gemini-supply/camoufox-profile")
 ENV_PROFILE = "GEMINI_SUPPLY_USER_DATA_DIR"
 

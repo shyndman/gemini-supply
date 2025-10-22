@@ -7,7 +7,7 @@ from typing import Literal, Sequence
 
 from gemini_supply.computers import ScreenSize
 from gemini_supply.grocery import ShoppingListProvider, YAMLShoppingListProvider
-from gemini_supply.grocery import (
+from gemini_supply.grocery.types import (
   ItemAddedResult,
   ItemNotFoundResult,
   ShoppingListItem,

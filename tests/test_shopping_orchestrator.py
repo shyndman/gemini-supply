@@ -3,13 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from gemini_supply.grocery import YAMLShoppingListProvider
 from gemini_supply.grocery import (
   ItemAddedResult,
   ItemNotFoundResult,
+  ItemStatus,
   ShoppingListItem,
   ShoppingSummary,
-  ItemStatus,
+  YAMLShoppingListProvider,
 )
 from gemini_supply.shopping import ConcurrencySetting
 

@@ -42,16 +42,15 @@ else:
   _BaseApiClient = Any
 
 from gemini_supply.computers import Computer, EnvState
-from gemini_supply import display_image_kitty
-from gemini_supply.grocery import (
+from gemini_supply.display import display_image_kitty
+from gemini_supply.grocery.types import (
   ItemAddedResult,
   ItemAddedResultModel,
   ItemNotFoundResult,
   ItemNotFoundResultModel,
 )
-from gemini_supply import TTYLogger
-from gemini_supply.preferences import PreferenceItemSession
-from gemini_supply.preferences import ProductChoiceResult
+from gemini_supply.log import TTYLogger
+from gemini_supply.preferences import PreferenceItemSession, ProductChoiceResult
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
 PREDEFINED_COMPUTER_USE_FUNCTIONS = [

@@ -6,7 +6,7 @@ from typing import Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from .types import (
+from gemini_supply.grocery.types import (
   ItemAddedResult,
   ItemNotFoundResult,
   ItemStatus,
