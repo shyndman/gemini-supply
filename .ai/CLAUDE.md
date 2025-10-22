@@ -1,6 +1,6 @@
-# CLAUDE.md
+**Important!**
 
-Guidance for Claude Code (claude.ai/code) when working in this repo.
+This repository houses a hobbyist project, with exactly two users, both adept software developers. Writing backwards compatible software is not wanted, nor valued. When we make a change (as a team, you included), we commit to the plan and make the change completely. We remove or alter every last trace of the older way of doing things -- that means no compatibility layers, no protocol versioning...no discussions even! Nothing.
 
 ## Overview (Happy Path)
 
@@ -24,7 +24,8 @@ Note: No extra Playwright installs are required for the happy path. If your syst
 
 ## Run
 
-1) Shop all uncompleted items (auto-login runs first):
+1. Shop all uncompleted items (auto-login runs first):
+
 ```bash
 uv run gemini-supply shop --shopping-list ~/.config/gemini-supply/shopping_list.yaml \
   --time-budget 5m --max-turns 40 --model gemini-2.5-computer-use-preview-10-2025 \
@@ -67,7 +68,6 @@ uv pip compile pyproject.toml --upgrade
 - Config file (optional): `~/.config/gemini-supply/config.yaml` supports:
   - `shopping_list.provider: home_assistant`
   - `home_assistant.url`, `home_assistant.token`
-  - `postal_code`
   - `concurrency`
   - `preferences.file`: path to preference YAML store
   - `preferences.normalizer_model`, `preferences.normalizer_api_base_url`, `preferences.normalizer_api_key`

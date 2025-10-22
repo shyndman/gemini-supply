@@ -1,5 +1,3 @@
-# Repository Guidelines
-
 **Important!**
 
 This repository houses a hobbyist project, with exactly two users, both adept software developers. Writing backwards compatible software is not wanted, nor valued. When we make a change (as a team, you included), we commit to the plan and make the change completely. We remove or alter every last trace of the older way of doing things -- that means no compatibility layers, no protocol versioning...no discussions even! Nothing.
