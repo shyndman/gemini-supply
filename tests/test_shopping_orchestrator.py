@@ -1,17 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
+from gemini_supply.config import ConcurrencyConfig
 from gemini_supply.grocery import (
   ItemAddedResult,
   ItemNotFoundResult,
   ItemStatus,
   ShoppingListItem,
   ShoppingSummary,
-  YAMLShoppingListProvider,
 )
-from gemini_supply.shopping import ConcurrencySetting
 
 
 def _items(count: int) -> list[ShoppingListItem]:
@@ -49,37 +47,24 @@ class StubProvider:
 
 
 def test_concurrency_explicit_int() -> None:
-  setting = ConcurrencySetting.from_inputs(cli_value=4, config_value=2)
-  value = setting.resolve(_items(10), StubProvider())
+  setting = ConcurrencyConfig(value=4)
+  value = setting.resolve(10)
   assert value == 4
 
 
-def test_concurrency_uses_config_when_cli_zero() -> None:
-  setting = ConcurrencySetting.from_inputs(cli_value=0, config_value=3)
-  value = setting.resolve(_items(10), StubProvider())
-  assert value == 3
-
-
 def test_concurrency_len_caps_to_item_count() -> None:
-  setting = ConcurrencySetting.from_inputs(cli_value="len", config_value=None)
-  value = setting.resolve(_items(5), StubProvider())
+  setting = ConcurrencyConfig(value="len")
+  value = setting.resolve(5)
   assert value == 5
 
 
 def test_concurrency_len_caps_maximum() -> None:
-  setting = ConcurrencySetting.from_inputs(cli_value="len", config_value=None)
-  value = setting.resolve(_items(25), StubProvider())
+  setting = ConcurrencyConfig(value="len")
+  value = setting.resolve(25)
   assert value == 20
 
 
 def test_concurrency_len_empty_list_returns_one() -> None:
-  setting = ConcurrencySetting.from_inputs(cli_value="len", config_value=None)
-  value = setting.resolve([], StubProvider())
-  assert value == 1
-
-
-def test_yaml_provider_forces_single_concurrency(tmp_path: Path) -> None:
-  yaml_provider = YAMLShoppingListProvider(path=tmp_path / "list.yaml")
-  setting = ConcurrencySetting.from_inputs(cli_value=5, config_value=None)
-  value = setting.resolve(_items(5), yaml_provider)
+  setting = ConcurrencyConfig(value="len")
+  value = setting.resolve(0)
   assert value == 1

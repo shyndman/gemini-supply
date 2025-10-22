@@ -25,7 +25,7 @@ class PreferenceCoordinator:
 
   normalizer: NormalizationAgent
   store: PreferenceStore
-  messenger: TelegramPreferenceMessenger | None = None
+  messenger: TelegramPreferenceMessenger
 
   async def start(self) -> None:
     if self.messenger is not None:

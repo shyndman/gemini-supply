@@ -6,11 +6,9 @@ from typing import Annotated, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from gemini_supply.shopping.models import ConcurrencySetting
-
-
 DEFAULT_CONFIG_PATH = Path("~/.config/gemini-supply/config.yaml").expanduser()
 DEFAULT_PREFERENCES_PATH = Path("~/.config/gemini-supply/preferences.yaml").expanduser()
+MAX_CONCURRENCY = 20
 
 
 def _trim(value: str | None) -> str | None:
@@ -20,6 +18,31 @@ def _trim(value: str | None) -> str | None:
   if not trimmed:
     return None
   return trimmed
+
+
+class ConcurrencyConfig(BaseModel):
+  model_config = ConfigDict(frozen=True)
+
+  value: int | Literal["len"]
+
+  @classmethod
+  def parse(cls, raw: str) -> ConcurrencyConfig:
+    """Parse concurrency from a string value (either 'len' or a positive integer)."""
+    trimmed = raw.strip().lower()
+    if trimmed == "len":
+      return cls(value="len")
+    try:
+      parsed = int(trimmed)
+    except ValueError as exc:
+      raise ValueError("concurrency must be a positive integer or 'len'") from exc
+    if parsed < 1:
+      raise ValueError("concurrency must be a positive integer or 'len'")
+    return cls(value=parsed)
+
+  def resolve(self, item_count: int) -> int:
+    if self.value == "len":
+      return 1 if item_count <= 0 else min(item_count, MAX_CONCURRENCY)
+    return self.value
 
 
 class YAMLShoppingListConfig(BaseModel):
@@ -74,8 +97,8 @@ class PreferencesTelegramConfig(BaseModel):
   @field_validator("chat_id", mode="after")
   @classmethod
   def _validate_chat_id(cls, value: int) -> int:
-    if value <= 0:
-      raise ValueError("chat_id must be greater than zero")
+    if value == 0:
+      raise ValueError("chat_id cannot be zero")
     return value
 
   @field_validator("nag_minutes", mode="after")
@@ -118,31 +141,20 @@ class AppConfig(BaseModel):
   model_config = ConfigDict(extra="forbid")
 
   shopping_list: ShoppingListConfig
-  postal_code: str
-  concurrency: ConcurrencySetting = Field(
-    default_factory=lambda: ConcurrencySetting.from_inputs("len", None)
-  )
+  concurrency: ConcurrencyConfig = Field(default_factory=lambda: ConcurrencyConfig(value="len"))
   preferences: PreferencesConfig
-
-  @field_validator("postal_code", mode="after")
-  @classmethod
-  def _normalize_postal_code(cls, value: str) -> str:
-    trimmed = _trim(value)
-    if trimmed is None:
-      raise ValueError("postal_code must be provided")
-    return trimmed.replace(" ", "").upper()
 
   @field_validator("concurrency", mode="before")
   @classmethod
-  def _coerce_concurrency(cls, value: object) -> ConcurrencySetting:
+  def _coerce_concurrency(cls, value: object) -> ConcurrencyConfig:
     if value is None:
-      return ConcurrencySetting.from_inputs("len", None)
-    if isinstance(value, ConcurrencySetting):
+      return ConcurrencyConfig(value="len")
+    if isinstance(value, ConcurrencyConfig):
       return value
     if isinstance(value, str):
       lowered = value.strip().lower()
       if lowered == "len":
-        return ConcurrencySetting.from_inputs("len", None)
+        return ConcurrencyConfig(value="len")
       try:
         value = int(lowered)
       except ValueError as exc:
@@ -152,7 +164,7 @@ class AppConfig(BaseModel):
     if isinstance(value, int):
       if value < 1:
         raise ValueError("concurrency must be an integer greater than or equal to 1")
-      return ConcurrencySetting.from_inputs(value, None)
+      return ConcurrencyConfig(value=value)
     raise ValueError("concurrency must be an integer or 'len'")
 
 

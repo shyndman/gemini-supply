@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TypeAlias, cast
 
+from pydantic.types import NegativeInt
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -27,7 +28,7 @@ from .types import ProductChoiceRequest, ProductChoiceResult, ProductOption
 @dataclass(slots=True)
 class TelegramSettings:
   bot_token: str
-  chat_id: int
+  chat_id: NegativeInt
   nag_interval: timedelta
 
 

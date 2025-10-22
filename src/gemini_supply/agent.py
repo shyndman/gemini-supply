@@ -43,7 +43,7 @@ else:
 
 from gemini_supply.computers import Computer, EnvState
 from gemini_supply.display import display_image_kitty
-from gemini_supply.grocery.types import (
+from gemini_supply.grocery import (
   ItemAddedResult,
   ItemAddedResultModel,
   ItemNotFoundResult,

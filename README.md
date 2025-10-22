@@ -36,10 +36,16 @@ Process all uncompleted items from a YAML shopping list with the authenticated s
     ```yaml
     shopping_list:
       provider: home_assistant
-    home_assistant:
       url: http://home.don
       token: YOUR_LONG_LIVED_ACCESS_TOKEN
-    postal_code: "M5V 1J1"
+
+    preferences:
+      normalizer_model: "qwen3:1.7b"
+      normalizer_api_base_url: "http://ollama/v1"
+      telegram:
+        bot_token: "YOUR_TELEGRAM_BOT_TOKEN"
+        chat_id: -123456789
+
     # optional
     concurrency: 3
     ```

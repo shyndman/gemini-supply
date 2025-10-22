@@ -10,6 +10,8 @@ from gemini_supply.grocery import (
   ItemAddedResult,
   ShoppingSummary,
 )
+from gemini_supply.models import AddedOutcome, ShoppingResults
+from gemini_supply.orchestrator import _is_specific_request
 from gemini_supply.preferences import (
   NormalizationAgent,
   NormalizedItem,
@@ -24,7 +26,6 @@ from gemini_supply.preferences import (
   TelegramSettings,
   _coerce_options,
 )
-from gemini_supply.shopping import AddedOutcome, ShoppingResults, _is_specific_request
 
 
 class _DummyNormalizer:

@@ -2,32 +2,34 @@
 # Copy to ~/.config/gemini-supply/config.yaml
 # Keep this file private (do not commit real tokens).
 
+# Shopping list configuration
+# Option 1: Home Assistant provider
 shopping_list:
-  provider: "home_assistant"  # options: home_assistant
-
-home_assistant:
+  provider: "home_assistant"
   url: "http://home.don"  # include http:// or https://
   token: "YOUR_LONG_LIVED_ACCESS_TOKEN"
 
-# Retailer/location settings
-postal_code: "M5V 1J1"  # used for delivery prompt on metro.ca
+# Option 2: YAML file provider (uncomment to use)
+# shopping_list:
+#   provider: "yaml"
+#   path: "~/.config/gemini-supply/shopping_list.yaml"
 
 # Parallelism
-concurrency: 3  # number of items to process in parallel (tabs)
+# Can be an integer >= 1, or "len" to match the number of items (capped at 20)
+concurrency: 3  # defaults to "len" if omitted
 
-# Product preferences
+# Product preferences (required)
 preferences:
-  file: "~/.config/gemini-supply/preferences.yaml"  # where canonical mappings are stored
-  normalizer_model: "qwen3:1.7b"  # OpenAI-compatible model name used for normalization
-  normalizer_api_base_url: "http://ollama/v1"  # OpenAI-compatible endpoint (optional)
-  normalizer_api_key: ""  # optional key when hitting remote provider; leave blank for local Ollama
+  file: "~/.config/gemini-supply/preferences.yaml"  # where canonical mappings are stored (optional, defaults to this path)
+  normalizer_model: "qwen3:1.7b"  # OpenAI-compatible model name used for normalization (required)
+  normalizer_api_base_url: "http://ollama/v1"  # OpenAI-compatible endpoint (required)
+  normalizer_api_key: ""  # optional key when hitting remote provider; leave blank or omit for local Ollama
   telegram:
-    bot_token: "YOUR_TELEGRAM_BOT_TOKEN"
-    chat_id: -123456789
-    nag_minutes: 30  # reminder cadence; defaults to 30 if omitted
+    bot_token: "YOUR_TELEGRAM_BOT_TOKEN"  # required
+    chat_id: -123456789  # required; negative for groups, positive for private chats
+    nag_minutes: 30  # reminder cadence in minutes, must be > 0; defaults to 30 if omitted
 
 # Notes:
-# - When provider is home_assistant, the CLI does not require --shopping-list.
-# - You can omit --postal-code if postal_code is set here.
-# - Set --concurrency 0 to use config or default 1.
-# - For YAML provider, omit this config and pass --shopping-list /path/to/list.yaml.
+# - All string fields are trimmed; empty/whitespace-only values are rejected.
+# - When using yaml provider, concurrency is forced to 1.
+# - CLI flags override config values where applicable.

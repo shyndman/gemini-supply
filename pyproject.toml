@@ -3,9 +3,7 @@ name = "gemini-supply"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-authors = [
-    { name = "Scott Hyndman", email = "scotty.hyndman@gmail.com" }
-]
+authors = [{name = "Scott Hyndman", email = "scotty.hyndman@gmail.com"}]
 requires-python = ">=3.13"
 dependencies = [
     "better-exceptions>=0.3.3",
@@ -41,9 +39,9 @@ target-version = "py313"
 
 [tool.ruff.lint]
 extend-select = [
-  "B009",   # get-attr-with-constant
-  "ANN401", # any-type
-  "PYI032", # any-eq-ne-annotation
+    "B009",   # get-attr-with-constant
+    "ANN401", # any-type
+    "PYI032", # any-eq-ne-annotation
 ]
 
 [tool.pyright]
@@ -51,10 +49,9 @@ reportUnknownMemberAccess = "error"
 reportUnknownVariableType = "error"
 reportUnknownArgumentType = "error"
 reportUnknownParameterType = "error"
+reportUnsupportedDunderAll = "error"
 venvPath = "."
 venv = ".venv"
 
 [dependency-groups]
-dev = [
-    "pytest-xdist>=3.8.0",
-]
+dev = ["pytest-xdist>=3.8.0"]
