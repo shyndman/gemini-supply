@@ -4,9 +4,9 @@ import asyncio
 
 import termcolor
 
-from gemini_supply.auth import AuthManager, build_camoufox_options
+from gemini_supply import AuthManager, build_camoufox_options
 from gemini_supply.computers import CamoufoxHost
-from gemini_supply.profile import resolve_camoufox_exec, resolve_profile_dir
+from gemini_supply import resolve_camoufox_exec, resolve_profile_dir
 
 PLAYWRIGHT_SCREEN_SIZE = (1440, 900)
 

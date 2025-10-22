@@ -7,7 +7,7 @@ from typing import cast
 
 import pytest
 
-from gemini_supply.auth import AuthManager
+from gemini_supply import AuthManager
 from gemini_supply.computers import CamoufoxHost
 
 

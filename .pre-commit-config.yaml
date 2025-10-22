@@ -42,5 +42,5 @@ repos:
     hooks:
       - id: ty
         name: ty check
-        entry: uvx ty check
+        entry: uv run ty check
         language: python

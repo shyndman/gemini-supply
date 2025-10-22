@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 from decimal import Decimal, InvalidOperation
 from dataclasses import dataclass
 
-from gemini_supply.grocery.types import ItemAddedResult
+from gemini_supply.grocery import ItemAddedResult
 
 from .normalizer import NormalizationAgent
 from .store import PreferenceStore

@@ -14,12 +14,14 @@
 from .browser_host import CamoufoxHost, CamoufoxTab
 from .computer import Computer, EnvState, ScreenSize
 from .errors import AuthExpiredError
+from .keys import PLAYWRIGHT_KEY_MAP
 
 __all__ = [
-  "Computer",
-  "EnvState",
-  "ScreenSize",
   "AuthExpiredError",
   "CamoufoxHost",
   "CamoufoxTab",
+  "Computer",
+  "EnvState",
+  "PLAYWRIGHT_KEY_MAP",
+  "ScreenSize",
 ]

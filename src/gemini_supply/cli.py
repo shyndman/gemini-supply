@@ -8,9 +8,9 @@ from clypi import Command, arg
 from typing_extensions import override
 
 from gemini_supply.computers import ScreenSize
-from gemini_supply.config import DEFAULT_CONFIG_PATH, load_config
+from gemini_supply import DEFAULT_CONFIG_PATH, load_config
 from gemini_supply.shopping import run_shopping
-from gemini_supply.shopping.models import ConcurrencySetting, ShoppingSettings
+from gemini_supply.shopping import ConcurrencySetting, ShoppingSettings
 
 PLAYWRIGHT_SCREEN_SIZE = (1440, 900)
 

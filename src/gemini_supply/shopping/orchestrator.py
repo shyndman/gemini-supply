@@ -4,31 +4,47 @@ import asyncio
 import os
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from datetime import timedelta
+from pathlib import Path
 from typing import Literal, Sequence
 
 import termcolor
 
-from gemini_supply.agent import BrowserAgent
-from gemini_supply.auth import AuthManager, build_camoufox_options
+from gemini_supply import (
+  AppConfig,
+  AuthManager,
+  BrowserAgent,
+  HomeAssistantShoppingListConfig,
+  PreferencesConfig,
+  ShoppingListConfig,
+  TTYLogger,
+  YAMLShoppingListConfig,
+  build_camoufox_options,
+  resolve_camoufox_exec,
+  resolve_profile_dir,
+)
 from gemini_supply.computers import AuthExpiredError, CamoufoxHost
-from gemini_supply.config import DEFAULT_CONFIG_PATH, AppConfig, PreferencesConfig, load_config
 from gemini_supply.grocery import (
   HomeAssistantShoppingListProvider,
+  ItemAddedResult,
+  ItemNotFoundResult,
+  ShoppingListItem,
   ShoppingListProvider,
   YAMLShoppingListProvider,
 )
-from gemini_supply.grocery.types import ItemAddedResult, ItemNotFoundResult, ShoppingListItem
-from gemini_supply.preferences.constants import DEFAULT_NAG_STRINGS, DEFAULT_NORMALIZER_MODEL
-from gemini_supply.preferences.messenger import TelegramPreferenceMessenger, TelegramSettings
-from gemini_supply.preferences.normalizer import NormalizationAgent
-from gemini_supply.preferences.service import PreferenceCoordinator, PreferenceItemSession
-from gemini_supply.preferences.store import PreferenceStore
-from gemini_supply.preferences.types import NormalizedItem, PreferenceRecord
-from gemini_supply.profile import resolve_camoufox_exec, resolve_profile_dir
-from gemini_supply.log import TTYLogger
-from gemini_supply.shopping.models import (
+from gemini_supply.preferences import (
+  DEFAULT_NAG_STRINGS,
+  DEFAULT_NORMALIZER_MODEL,
+  NormalizationAgent,
+  NormalizedItem,
+  PreferenceCoordinator,
+  PreferenceItemSession,
+  PreferenceRecord,
+  PreferenceStore,
+  TelegramPreferenceMessenger,
+  TelegramSettings,
+)
+from gemini_supply.shopping import (
   AddedOutcome,
   FailedOutcome,
   LoopStatus,

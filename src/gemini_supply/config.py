@@ -1,8 +1,10 @@
 from __future__ import annotations
+import yaml
 
 from pathlib import Path
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 
 DEFAULT_CONFIG_PATH = Path("~/.config/gemini-supply/config.yaml").expanduser()

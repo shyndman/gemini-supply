@@ -13,7 +13,7 @@
 # limitations under the License.
 import asyncio
 import os
-from typing import TYPE_CHECKING, Any, Callable, Literal, TypedDict, TypeAlias, cast
+from typing import TYPE_CHECKING, Any, Callable, Literal, TypeAlias, TypedDict, cast
 
 import google.genai
 import termcolor
@@ -42,16 +42,16 @@ else:
   _BaseApiClient = Any
 
 from gemini_supply.computers import Computer, EnvState
-from gemini_supply.display import display_image_kitty
-from gemini_supply.grocery.types import (
+from gemini_supply import display_image_kitty
+from gemini_supply.grocery import (
   ItemAddedResult,
   ItemAddedResultModel,
   ItemNotFoundResult,
   ItemNotFoundResultModel,
 )
-from gemini_supply.log import TTYLogger
-from gemini_supply.preferences.service import PreferenceItemSession
-from gemini_supply.preferences.types import ProductChoiceResult
+from gemini_supply import TTYLogger
+from gemini_supply.preferences import PreferenceItemSession
+from gemini_supply.preferences import ProductChoiceResult
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
 PREDEFINED_COMPUTER_USE_FUNCTIONS = [

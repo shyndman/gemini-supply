@@ -3,15 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from gemini_supply.grocery.shopping_list import YAMLShoppingListProvider
-from gemini_supply.grocery.types import (
+from gemini_supply.grocery import YAMLShoppingListProvider
+from gemini_supply.grocery import (
   ItemAddedResult,
   ItemNotFoundResult,
   ShoppingListItem,
   ShoppingSummary,
   ItemStatus,
 )
-from gemini_supply.shopping.models import ConcurrencySetting
+from gemini_supply.shopping import ConcurrencySetting
 
 
 def _items(count: int) -> list[ShoppingListItem]:
