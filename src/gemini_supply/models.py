@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import timedelta
-from enum import StrEnum
-from typing import Literal
+from typing import Literal, TYPE_CHECKING
 
 from gemini_supply.computers import ScreenSize
 from gemini_supply.config import ConcurrencyConfig
@@ -12,11 +11,11 @@ from gemini_supply.grocery.types import (
   ItemNotFoundResult,
   ShoppingSummary,
 )
+from gemini_supply.preferences.types import ProductChoice, ProductDecision
 
-
-class LoopStatus(StrEnum):
-  COMPLETE = "COMPLETE"
-  CONTINUE = "CONTINUE"
+if TYPE_CHECKING:
+  from gemini_supply.grocery import ShoppingListItem, ShoppingListProvider
+  from gemini_supply.preferences import PreferenceItemSession
 
 
 def _empty_added_results() -> list[ItemAddedResult]:
@@ -99,3 +98,62 @@ class ShoppingSettings:
   time_budget: timedelta
   max_turns: int
   concurrency: ConcurrencyConfig
+
+
+@dataclass(slots=True)
+class ShoppingSession:
+  """Manages the shopping workflow for a single item, providing tool methods for the agent."""
+
+  item: ShoppingListItem
+  provider: ShoppingListProvider
+  preference_session: PreferenceItemSession
+  result: ItemAddedResult | ItemNotFoundResult | None = None
+
+  async def report_item_added(
+    self, item_name: str, price_text: str, url: str, quantity: int = 1
+  ) -> ItemAddedResult:
+    """Report success adding an item to the cart.
+
+    Args:
+      item_name: Name of the product added
+      price_text: Formatted price string (e.g., "$12.34")
+      url: Product page URL
+      quantity: Number of units added (default: 1)
+
+    Returns:
+      ItemAddedResult with all details including computed price_cents
+    """
+    self.result = ItemAddedResult(
+      item_name=item_name,
+      price_text=price_text,
+      url=url,
+      quantity=quantity,
+    )
+    self.provider.mark_completed(self.item.id, self.result)
+    await self.preference_session.record_success(self.result)
+    return self.result
+
+  async def report_item_not_found(self, item_name: str, explanation: str) -> ItemNotFoundResult:
+    """Report that an item could not be located.
+
+    Args:
+      item_name: Name of the item that was not found
+      explanation: Description of why the item couldn't be found
+
+    Returns:
+      ItemNotFoundResult with the details
+    """
+    self.result = ItemNotFoundResult(item_name=item_name, explanation=explanation)
+    self.provider.mark_not_found(self.item.id, self.result)
+    return self.result
+
+  async def request_product_choice(self, choices: list[ProductChoice]) -> ProductDecision:
+    """Request human input to choose a preferred product.
+
+    Args:
+      choices: Up to 10 structured product options containing title, price, and URL
+
+    Returns:
+      ProductDecision describing the user's choice (selected index, alternate text, or skip)
+    """
+    return await self.preference_session.request_choice(choices)

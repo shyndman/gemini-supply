@@ -5,23 +5,25 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import TracebackType
-from urllib.parse import urlparse
 from typing import (
   TYPE_CHECKING,
   Any,
   AsyncIterator,
   Awaitable,
   Literal,
+  NotRequired,
   Protocol,
   TypedDict,
   Unpack,
   cast,
 )
+from urllib.parse import urlparse
 
 import playwright.async_api
 import termcolor
 from camoufox.utils import launch_options as camoufox_launch_options
 from playwright.async_api import async_playwright
+from playwright_captcha.utils.camoufox_add_init_script.add_init_script import get_addon_path
 
 if TYPE_CHECKING:
   from playwright.async_api import BrowserContext, Playwright
@@ -49,6 +51,59 @@ from .errors import AuthExpiredError
 from .keys import PLAYWRIGHT_KEY_MAP
 
 
+class CamoufoxLaunchOptions(TypedDict):
+  """Typed options for Camoufox browser launch configuration.
+
+  Based on camoufox.launch_options() signature. All fields are optional.
+  See: https://github.com/daijro/camoufox
+  """
+
+  # Humanization settings
+  humanize: NotRequired[bool | float]  # Humanize cursor movement (True or max duration in seconds)
+  config: NotRequired[
+    dict[str, Any]
+  ]  # Camoufox-specific properties (e.g., humanize:maxTime, showcursor)
+
+  # Addons and extensions
+  addons: NotRequired[list[str]]  # Firefox addon paths (e.g., CAPTCHA solver for authentication)
+
+  # Evaluation and security
+  main_world_eval: NotRequired[
+    bool
+  ]  # Enable scripts in main world (prepend "mw:" to evaluate calls)
+  i_know_what_im_doing: NotRequired[bool]  # Bypass safety warnings
+  disable_coop: NotRequired[
+    bool
+  ]  # Disable Cross-Origin-Opener-Policy for cross-origin iframe interaction
+
+
+def build_camoufox_options() -> CamoufoxLaunchOptions:
+  """Build default Camoufox launch options for metro.ca automation.
+
+  Returns:
+    Configured options including:
+    - Humanized cursor movement (for appearing more natural)
+    - CAPTCHA solver addon (required for metro.ca authentication)
+    - Main world evaluation (for advanced script injection)
+    - COOP disabled (for cross-origin iframe interaction)
+  """
+
+  addon_path = get_addon_path()
+  return {
+    "humanize": True,
+    "config": {
+      "humanize:maxTime": 0.9,
+      "humanize:minTime": 0.6,
+      "showcursor": True,
+      "forceScopeAccess": True,
+    },
+    "addons": [os.path.abspath(addon_path)],  # CAPTCHA solver for metro.ca login
+    "main_world_eval": True,
+    "i_know_what_im_doing": True,
+    "disable_coop": True,  # Required for cross-origin iframe elements (e.g., Turnstile checkbox)
+  }
+
+
 class CamoufoxHost:
   """Single persistent Camoufox/Firefox context that can spawn per-tab Computers.
 
@@ -62,7 +117,7 @@ class CamoufoxHost:
   def __init__(
     self,
     *,
-    screen_size: ScreenSize | tuple[int, int],
+    screen_size: ScreenSize,
     user_data_dir: Path,
     initial_url: str = "https://www.metro.ca",
     search_engine_url: str = "https://www.metro.ca/en/online-grocery/search",
@@ -71,8 +126,7 @@ class CamoufoxHost:
     executable_path: Path | None = None,
     headless: bool | Literal["virtual"] | None = None,
     disable_sandbox: bool | None = None,
-    browser: Literal["firefox", "chromium"] | None = None,
-    camoufox_options: dict[str, Any] | None = None,
+    camoufox_options: CamoufoxLaunchOptions | None = None,
   ) -> None:
     self._initial_url = initial_url
     self._search_engine_url = search_engine_url
@@ -82,22 +136,11 @@ class CamoufoxHost:
     self._user_data_dir = user_data_dir
     self._headless: bool | Literal["virtual"] | None = headless
 
+    self._screen_size = screen_size
+
     env_disable = os.environ.get("CAMOUFOX_DISABLE_SANDBOX", "").strip().lower()
     self._disable_sandbox = (
       disable_sandbox if disable_sandbox is not None else env_disable in ("1", "true", "yes", "on")
-    )
-
-    if isinstance(screen_size, ScreenSize):
-      self._screen_size = screen_size
-    else:
-      self._screen_size = ScreenSize(*screen_size)
-
-    env_browser = os.environ.get("CAMOUFOX_BROWSER", "").strip().lower()
-    resolved_browser = browser or (
-      env_browser if env_browser in {"firefox", "chromium"} else "firefox"
-    )
-    self._browser_type: Literal["firefox", "chromium"] = (
-      "chromium" if resolved_browser == "chromium" else "firefox"
     )
 
     # Runtime-managed Playwright objects
@@ -107,8 +150,10 @@ class CamoufoxHost:
     self._initial_page_claimed = False
     self._restrictions_active = False
 
-    # Optional Camoufox launch overrides
-    self._camoufox_options = camoufox_options.copy() if camoufox_options else None
+    # Camoufox launch options (use default if not provided)
+    self._camoufox_options = (
+      camoufox_options.copy() if camoufox_options else build_camoufox_options()
+    )
 
     # Shared restrictions
     self._allow_domains: set[str] = {
@@ -158,7 +203,6 @@ class CamoufoxHost:
     termcolor.cprint("Creating Camoufox host (persistent context)...", color="cyan")
     self._playwright = await async_playwright().start()
     assert self._playwright is not None
-    p = self._playwright
 
     try:
       # Headless: prefer explicit flag, else env var PLAYWRIGHT_HEADLESS
@@ -175,41 +219,11 @@ class CamoufoxHost:
       else:
         headless = self._headless
 
-      if self._camoufox_options is not None:
-        termcolor.cprint("Launching with Camoufox options (persistent context)...", color="cyan")
-        context = await self._launch_with_camoufox_options(headless=headless)
-        self._context = context
-        # Browser may be None for persistent contexts; rely on context.
-        self._browser = context.browser
-      else:
-        launch_args: list[str] = []
-        launch_env: dict[str, str] | None = None
-        if self._disable_sandbox:
-          runtime_dir = self._user_data_dir / ".runtime"
-          runtime_dir.mkdir(parents=True, exist_ok=True)
-          launch_args.extend(
-            ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
-          )
-          launch_env = {
-            "MOZ_DISABLE_CONTENT_SANDBOX": "1",
-            "MOZ_DISABLE_GMP_SANDBOX": "1",
-            "MOZ_DISABLE_RDD_SANDBOX": "1",
-            "XDG_RUNTIME_DIR": str(runtime_dir),
-          }
-
-        browser_launcher = getattr(p, self._browser_type)
-        bool_headless = headless if isinstance(headless, bool) else False
-        context = await browser_launcher.launch_persistent_context(
-          user_data_dir=str(self._user_data_dir),
-          executable_path=str(self._executable_path) if self._executable_path else None,
-          headless=bool_headless,
-          viewport={"width": self._screen_size.width, "height": self._screen_size.height},
-          args=launch_args or None,
-          env=launch_env,
-        )
-        self._context = context
-        # Browser may be None for persistent contexts; rely on context.
-        self._browser = context.browser
+      termcolor.cprint("Launching with Camoufox options (persistent context)...", color="cyan")
+      context = await self._launch_with_camoufox_options(headless=headless)
+      self._context = context
+      # Browser may be None for persistent contexts; rely on context.
+      self._browser = context.browser
     except Exception as e:  # noqa: BLE001
       raise RuntimeError(
         f"Failed to launch Camoufox persistent context with profile '{self._user_data_dir}': {e}"
@@ -230,18 +244,16 @@ class CamoufoxHost:
   async def _launch_with_camoufox_options(
     self, *, headless: bool | Literal["virtual"]
   ) -> playwright.async_api.BrowserContext:
-    if self._browser_type != "firefox":
-      raise RuntimeError("Camoufox launch options require the Firefox browser type.")
     assert self._playwright is not None
+    assert self._camoufox_options is not None
     loop = asyncio.get_running_loop()
-    launch_kwargs = self._camoufox_options.copy() if self._camoufox_options else {}
+    launch_kwargs = cast(dict[str, Any], self._camoufox_options.copy())
     if "config" in launch_kwargs and isinstance(launch_kwargs["config"], dict):
       launch_kwargs["config"] = launch_kwargs["config"].copy()
     exe_path = str(self._executable_path) if self._executable_path else None
     options = await loop.run_in_executor(
       None,
       lambda: camoufox_launch_options(
-        headless=cast(Any, headless),
         executable_path=exe_path,
         **launch_kwargs,
       ),
@@ -274,7 +286,7 @@ class CamoufoxHost:
       persistent_context=True,
       headless=headless,
     )
-    return cast(playwright.async_api.BrowserContext, context)
+    return context
 
   async def __aexit__(
     self,
@@ -585,4 +597,4 @@ class CamoufoxTab(Computer):
     )
 
 
-__all__ = ["CamoufoxHost", "CamoufoxTab"]
+__all__ = ["build_camoufox_options", "CamoufoxHost", "CamoufoxLaunchOptions", "CamoufoxTab"]

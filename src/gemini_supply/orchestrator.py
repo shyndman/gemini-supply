@@ -7,13 +7,14 @@ import time
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import Literal, Sequence
+from enum import Enum
+from typing import Literal, Protocol, Sequence
 
 import termcolor
 
-from gemini_supply.agent import BrowserAgent
-from gemini_supply.auth import AuthManager, build_camoufox_options
-from gemini_supply.computers import AuthExpiredError, CamoufoxHost
+from gemini_supply.agent import BrowserAgent, LoopStatus
+from gemini_supply.auth import AuthManager
+from gemini_supply.computers import AuthExpiredError, CamoufoxHost, build_camoufox_options
 from gemini_supply.config import (
   AppConfig,
   HomeAssistantShoppingListConfig,
@@ -33,10 +34,10 @@ from gemini_supply.log import TTYLogger
 from gemini_supply.models import (
   AddedOutcome,
   FailedOutcome,
-  LoopStatus,
   NotFoundOutcome,
   Outcome,
   ShoppingResults,
+  ShoppingSession,
   ShoppingSettings,
 )
 from gemini_supply.preferences import (
@@ -62,6 +63,36 @@ class PreferenceResources:
   async def stop(self) -> None:
     if self.coordinator is not None:
       await self.coordinator.stop()
+
+
+class AuthEnsurer(Protocol):
+  async def ensure_authenticated(self, *, force: bool = False) -> None: ...
+
+
+class OrchestrationStage(Enum):
+  PRE_SHOP_AUTH = "pre_shop_auth"
+  SHOPPING = "shopping"
+
+
+class OrchestrationState:
+  """Tracks orchestration stage and gates pre-shop authentication."""
+
+  __slots__ = ("_stage", "_lock")
+
+  def __init__(self) -> None:
+    self._stage = OrchestrationStage.PRE_SHOP_AUTH
+    self._lock = asyncio.Lock()
+
+  @property
+  def stage(self) -> OrchestrationStage:
+    return self._stage
+
+  async def ensure_pre_shop_auth(self, auth_manager: AuthEnsurer, *, force: bool = False) -> None:
+    async with self._lock:
+      if self._stage is OrchestrationStage.SHOPPING and not force:
+        return
+      await auth_manager.ensure_authenticated(force=force)
+      self._stage = OrchestrationStage.SHOPPING
 
 
 async def run_shopping(
@@ -183,7 +214,8 @@ async def _run_shopping_flow(
     camoufox_options=build_camoufox_options(),
   ) as host:
     auth_manager = AuthManager(host)
-    await auth_manager.ensure_authenticated(force=True)
+    state = OrchestrationState()
+    await state.ensure_pre_shop_auth(auth_manager, force=True)
     if effective_concurrency <= 1:
       return await _run_sequential(
         host=host,
@@ -193,6 +225,7 @@ async def _run_shopping_flow(
         logger=logger,
         preferences=preferences,
         auth_manager=auth_manager,
+        state=state,
       )
     return await _run_concurrent(
       host=host,
@@ -203,6 +236,7 @@ async def _run_shopping_flow(
       preferences=preferences,
       concurrency=effective_concurrency,
       auth_manager=auth_manager,
+      state=state,
     )
 
 
@@ -215,6 +249,7 @@ async def _run_sequential(
   logger: TTYLogger,
   preferences: PreferenceResources,
   auth_manager: AuthManager,
+  state: OrchestrationState,
 ) -> ShoppingResults:
   results = ShoppingResults()
   for item in items:
@@ -227,6 +262,7 @@ async def _run_sequential(
         logger=logger,
         preferences=preferences,
         auth_manager=auth_manager,
+        state=state,
       )
     except Exception as exc:  # noqa: BLE001
       await _handle_processing_exception(item, exc, provider)
@@ -245,6 +281,7 @@ async def _run_concurrent(
   preferences: PreferenceResources,
   concurrency: int,
   auth_manager: AuthManager,
+  state: OrchestrationState,
 ) -> ShoppingResults:
   results = ShoppingResults()
   sem = asyncio.Semaphore(concurrency)
@@ -261,6 +298,7 @@ async def _run_concurrent(
           logger=logger,
           preferences=preferences,
           auth_manager=auth_manager,
+          state=state,
         )
         collected.append((item, outcome))
       except Exception as exc:  # noqa: BLE001
@@ -269,6 +307,7 @@ async def _run_concurrent(
 
   async with asyncio.TaskGroup() as tg:
     for shopping_item in items:
+      await asyncio.sleep(0.8)
       tg.create_task(run_one(shopping_item))
 
   for _, outcome in collected:
@@ -286,10 +325,11 @@ async def _process_item(
   logger: TTYLogger,
   preferences: PreferenceResources,
   auth_manager: AuthManager,
+  state: OrchestrationState,
 ) -> Outcome:
   existing_preference: PreferenceRecord | None = None
   specific_request = False
-  await auth_manager.ensure_authenticated()
+  await state.ensure_pre_shop_auth(auth_manager)
 
   normalized = await preferences.coordinator.normalize_item(item.name)
   preference_session = preferences.coordinator.create_session(normalized)
@@ -301,7 +341,7 @@ async def _process_item(
     return await _shop_single_item_in_tab(
       host=host,
       item=item,
-      provider=provider,
+      shopping_list_provider=provider,
       model_name=settings.model_name,
       time_budget=settings.time_budget,
       max_turns=settings.max_turns,
@@ -355,7 +395,7 @@ def _build_task_prompt(
       Always prioritise this product unless it is unavailable or clearly incorrect.
 
       """)
-      if preference is not None
+      if preference
       else "",
       textwrap.dedent("""
       Instructions:
@@ -369,11 +409,11 @@ def _build_task_prompt(
         If the "Delivery or Pickup?" form appears, click the "I haven't made my choice yet" link at the bottom to defer selection, then press 'Add to Cart' again on the product page.
       5. Verify success: The 'Add to Cart' button becomes a quantity control (with +/−).
         If it does not change, try again or explain why it failed.
-      6. Call report_item_added(item_name, price_text, price_cents, url, quantity) when successful.
+      6. Call report_item_added(item_name, price_text, url, quantity) when successful.
         The 'url' MUST be the product page URL (NOT the search results page).
       7. If product cannot be located after reasonable attempts, call report_item_not_found(item_name, explanation).
-      8. When you cannot confidently pick a product, call request_preference_choice with up to 10 promising SRP results.
-        Include title, price_text (currency string), price_cents (integer), and the product URL for each option.
+      8. When you cannot confidently pick a product, call request_product_choice with up to 10 promising SRP results.
+        Include title, price_text (currency string), and the product URL for each option.
         Wait for the response before continuing.
 
       Constraints:
@@ -389,7 +429,7 @@ async def _shop_single_item_in_tab(
   *,
   host: CamoufoxHost,
   item: ShoppingListItem,
-  provider: ShoppingListProvider,
+  shopping_list_provider: ShoppingListProvider,
   model_name: str,
   time_budget: timedelta,
   max_turns: int,
@@ -420,24 +460,33 @@ async def _shop_single_item_in_tab(
     budget_seconds = time_budget.total_seconds()
     turns = 0
     try:
+      session = ShoppingSession(
+        item=item,
+        provider=shopping_list_provider,
+        preference_session=preference_session,
+      )
       agent = BrowserAgent(
         browser_computer=tab,
         query=prompt,
         model_name=model_name,
         logger=logger,
         output_label=item.name,
-        preference_session=preference_session,
+        custom_tools=[
+          session.report_item_added,
+          session.report_item_not_found,
+          session.request_product_choice,
+        ],
       )
       status: LoopStatus = LoopStatus.CONTINUE
       while status == LoopStatus.CONTINUE:
         turns += 1
         if turns > max_turns:
-          provider.mark_failed(item.id, f"max_turns_exceeded: {max_turns}")
+          shopping_list_provider.mark_failed(item.id, f"max_turns_exceeded: {max_turns}")
           termcolor.cprint("Max turns exceeded; marking failed.", color="yellow")
           return FailedOutcome(error=f"max_turns_exceeded: {max_turns}")
 
         if time.monotonic() - start > budget_seconds:
-          provider.mark_failed(item.id, f"time_budget_exceeded: {time_budget}")
+          shopping_list_provider.mark_failed(item.id, f"time_budget_exceeded: {time_budget}")
           termcolor.cprint("Time budget exceeded; marking failed.", color="yellow")
           return FailedOutcome(error=f"time_budget_exceeded: {time_budget}")
 
@@ -452,34 +501,23 @@ async def _shop_single_item_in_tab(
           )
           break
 
-        if agent.last_custom_tool_call is not None:
-          name = agent.last_custom_tool_call["name"]
-          payload = agent.last_custom_tool_call["payload"]
-          if name == "request_preference_choice":
-            agent.last_custom_tool_call = None
-            continue
-          if name == "report_item_added" and isinstance(payload, ItemAddedResult):
-            provider.mark_completed(item.id, payload)
-            if preference_session is not None:
-              default_used = (
-                preference_session.has_existing_preference and not preference_session.prompted_user
-              )
-              make_default = preference_session.make_default_pending
-              await preference_session.record_success(payload, default_used=default_used)
-              return AddedOutcome(
-                result=payload,
-                used_default=default_used,
-                starred_default=make_default,
-              )
-            return AddedOutcome(result=payload)
-          if name == "report_item_not_found" and isinstance(payload, ItemNotFoundResult):
-            provider.mark_not_found(item.id, payload)
-            return NotFoundOutcome(result=payload)
-          provider.mark_failed(item.id, f"unexpected_custom_tool: {name}")
-          return FailedOutcome(error=f"unexpected_custom_tool: {name}")
+        if session.result is not None:
+          result = session.result
+          if isinstance(result, ItemAddedResult):
+            default_used = (
+              preference_session.has_existing_preference and not preference_session.prompted_user
+            )
+            starred_default = preference_session.make_default_pending
+            return AddedOutcome(
+              result=result,
+              used_default=default_used,
+              starred_default=starred_default,
+            )
+          if isinstance(result, ItemNotFoundResult):
+            return NotFoundOutcome(result=result)
 
       if not needs_retry:
-        provider.mark_failed(item.id, "completed_without_reporting")
+        shopping_list_provider.mark_failed(item.id, "completed_without_reporting")
         return FailedOutcome(error="completed_without_reporting")
     finally:
       try:
@@ -496,7 +534,7 @@ async def _shop_single_item_in_tab(
       try:
         await auth_manager.ensure_authenticated()
       except Exception as auth_exc:  # noqa: BLE001
-        provider.mark_failed(item.id, f"auth_recovery_failed: {auth_exc}")
+        shopping_list_provider.mark_failed(item.id, f"auth_recovery_failed: {auth_exc}")
         termcolor.cprint(
           f"Authentication recovery failed ({auth_exc}); giving up on item.",
           color="red",
@@ -504,7 +542,7 @@ async def _shop_single_item_in_tab(
         return FailedOutcome(error=f"auth_recovery_failed: {auth_exc}")
       continue
 
-  provider.mark_failed(item.id, "auth_recovery_failed")
+  shopping_list_provider.mark_failed(item.id, "auth_recovery_failed")
   termcolor.cprint(
     "Authentication recovery exhausted; marking item as failed.",
     color="red",

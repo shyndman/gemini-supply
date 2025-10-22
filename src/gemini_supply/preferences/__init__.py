@@ -3,15 +3,15 @@ from __future__ import annotations
 from .constants import DEFAULT_NAG_STRINGS, DEFAULT_NORMALIZER_MODEL
 from .messenger import TelegramPreferenceMessenger, TelegramSettings
 from .normalizer import NormalizationAgent
-from .service import PreferenceCoordinator, PreferenceItemSession, _coerce_options
+from .service import PreferenceCoordinator, PreferenceItemSession
 from .store import PreferenceStore
 from .types import (
   NormalizedItem,
   PreferenceMetadata,
   PreferenceRecord,
   ProductChoiceRequest,
-  ProductChoiceResult,
-  ProductOption,
+  ProductDecision,
+  ProductChoice,
 )
 
 __all__ = [
@@ -26,7 +26,6 @@ __all__ = [
   # service
   "PreferenceCoordinator",
   "PreferenceItemSession",
-  "_coerce_options",
   # store
   "PreferenceStore",
   # types
@@ -34,6 +33,6 @@ __all__ = [
   "PreferenceMetadata",
   "PreferenceRecord",
   "ProductChoiceRequest",
-  "ProductChoiceResult",
-  "ProductOption",
+  "ProductDecision",
+  "ProductChoice",
 ]

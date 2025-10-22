@@ -7,7 +7,6 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.ollama import OllamaProvider
-from pydantic_ai.providers.openai import OpenAIProvider
 
 from .constants import DEFAULT_NORMALIZER_MODEL
 from .types import NormalizedItem
@@ -88,22 +87,10 @@ class NormalizationAgent:
 
   @cached_property
   def _agent(self) -> Agent[None, _NormalizationModel]:
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-      raise RuntimeError("GEMINI_API_KEY is required for normalization.")
     base_url = self._base_url or os.environ.get("OLLAMA_BASE_URL")
     provider_api_key = self._api_key or os.environ.get("OLLAMA_API_KEY")
-    if base_url:
-      provider = OllamaProvider(base_url=base_url, api_key=provider_api_key)
-      model = OpenAIChatModel(model_name=self._model_name, provider=provider)
-    else:
-      api_key = self._api_key or os.environ.get("OPENAI_API_KEY")
-      if not api_key:
-        raise RuntimeError(
-          "Set OPENAI_API_KEY for normalization, or configure preferences.normalizer_api_key / OLLAMA_BASE_URL."
-        )
-      provider = OpenAIProvider(api_key=api_key)
-      model = OpenAIChatModel(model_name=self._model_name, provider=provider)
+    provider = OllamaProvider(base_url=base_url, api_key=provider_api_key)
+    model = OpenAIChatModel(model_name=self._model_name, provider=provider)
     return Agent(
       model=model,
       output_type=_NormalizationModel,

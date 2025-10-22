@@ -3,47 +3,27 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, computed_field
+
+from gemini_supply.price_utils import parse_price_cents
 
 
-@dataclass(slots=True)
-class ItemAddedResult:
+class ItemAddedResult(BaseModel):
   item_name: str
   price_text: str
-  price_cents: int
   url: str
   quantity: int = 1
 
+  @computed_field
+  @property
+  def price_cents(self) -> int:
+    """Computed price in cents from price_text."""
+    return parse_price_cents(self.price_text)
 
-@dataclass(slots=True)
-class ItemNotFoundResult:
+
+class ItemNotFoundResult(BaseModel):
   item_name: str
   explanation: str
-
-
-class ItemAddedResultModel(BaseModel):
-  item_name: str
-  price_text: str
-  price_cents: int = Field(ge=0)
-  url: str
-  quantity: int = 1
-
-  def to_dataclass(self) -> ItemAddedResult:
-    return ItemAddedResult(
-      item_name=self.item_name,
-      price_text=self.price_text,
-      price_cents=self.price_cents,
-      url=self.url,
-      quantity=self.quantity,
-    )
-
-
-class ItemNotFoundResultModel(BaseModel):
-  item_name: str
-  explanation: str
-
-  def to_dataclass(self) -> ItemNotFoundResult:
-    return ItemNotFoundResult(item_name=self.item_name, explanation=self.explanation)
 
 
 class ItemStatus(StrEnum):
@@ -81,5 +61,3 @@ class ShoppingSummary:
   total_cost_text: str = "$0.00"
   default_fills: list[str] = field(default_factory=_empty_str_list)
   new_defaults: list[str] = field(default_factory=_empty_str_list)
-  default_fills: list[str]
-  new_defaults: list[str]

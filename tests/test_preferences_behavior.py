@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import cast
 
+from pydantic import HttpUrl
 import pytest
 
 from gemini_supply.grocery import (
@@ -20,11 +21,10 @@ from gemini_supply.preferences import (
   PreferenceRecord,
   PreferenceStore,
   ProductChoiceRequest,
-  ProductChoiceResult,
-  ProductOption,
+  ProductDecision,
+  ProductChoice,
   TelegramPreferenceMessenger,
   TelegramSettings,
-  _coerce_options,
 )
 
 
@@ -48,12 +48,12 @@ class _FakeMessenger:
   def __init__(self, make_default: bool) -> None:
     self._make_default = make_default
 
-  async def request_choice(self, request: ProductChoiceRequest) -> ProductChoiceResult:
+  async def request_choice(self, request: ProductChoiceRequest) -> ProductDecision:
     _ = request
-    return ProductChoiceResult(
+    return ProductDecision(
       decision="selected",
       selected_index=1,
-      selected_option=None,
+      selected_choice=None,
       make_default=self._make_default,
     )
 
@@ -75,7 +75,6 @@ def _added_result() -> ItemAddedResult:
   return ItemAddedResult(
     item_name="Lactantia 1% Milk",
     price_text="$5.49",
-    price_cents=549,
     url="https://example.com/milk",
     quantity=1,
   )
@@ -90,8 +89,14 @@ async def test_record_success_persists_when_marked_default() -> None:
     messenger=cast(TelegramPreferenceMessenger, _FakeMessenger(make_default=True)),
   )
   session = PreferenceItemSession(coordinator, _normalized_item())
-  await session.request_choice([{"title": "Option 1"}])
-  await session.record_success(_added_result(), default_used=False)
+  await session.request_choice(
+    [
+      ProductChoice(
+        title="Option 1", price_text="$1.00", url=HttpUrl("https://example.com/option1")
+      )
+    ]
+  )
+  await session.record_success(_added_result())
   saved = store.saved.get("milk")
   assert saved is not None
   assert saved.product_name == "Lactantia 1% Milk"
@@ -107,30 +112,15 @@ async def test_record_success_skips_without_default_toggle() -> None:
     messenger=cast(TelegramPreferenceMessenger, _FakeMessenger(make_default=False)),
   )
   session = PreferenceItemSession(coordinator, _normalized_item())
-  await session.request_choice([{"title": "Option 1"}])
-  await session.record_success(_added_result(), default_used=False)
-  assert store.saved == {}
-
-
-def test_coerce_options_normalizes_price_fields() -> None:
-  options = _coerce_options(
+  await session.request_choice(
     [
-      {
-        "title": "Milk",
-        "price_text": "4.99",
-        "price_cents": "499",
-        "url": "https://example.com/milk",
-      },
-      {
-        "title": "Butter",
-        "price_text": "$3.49",
-      },
+      ProductChoice(
+        title="Option 1", price_text="$1.00", url=HttpUrl("https://example.com/option1")
+      )
     ]
   )
-  assert options[0].price_text == "$4.99"
-  assert options[0].price_cents == 499
-  assert options[1].price_text == "$3.49"
-  assert options[1].price_cents == 349
+  await session.record_success(_added_result())
+  assert store.saved == {}
 
 
 def test_is_specific_request_detects_brand_and_qualifiers() -> None:
@@ -153,7 +143,6 @@ def test_shopping_results_track_default_flags() -> None:
       result=ItemAddedResult(
         item_name="Irrelevant Butter",
         price_text="$4.00",
-        price_cents=400,
         url="https://example.com/butter",
         quantity=1,
       ),
@@ -176,7 +165,6 @@ def test_home_assistant_summary_marks_default_notes() -> None:
       ItemAddedResult(
         item_name="Irrelevant Butter",
         price_text="$4.00",
-        price_cents=400,
         url="https://example.com/butter",
         quantity=1,
       ),
@@ -198,13 +186,12 @@ def test_home_assistant_summary_marks_default_notes() -> None:
 def test_format_option_block_outputs_markdown_lines() -> None:
   settings = TelegramSettings(bot_token="token", chat_id=123, nag_interval=timedelta(minutes=1))
   messenger = TelegramPreferenceMessenger(settings=settings, nag_strings=[])
-  option = ProductOption(
+  option = ProductChoice(
     title="2L Milk",
     price_text="$4.99",
-    description="2L jug",
-    url="https://example.com/milk",
+    url=HttpUrl("https://example.com/milk"),
   )
-  block = messenger._format_option_block(1, option)
+  block = messenger._format_choice_block(1, option)
   assert block[0] == "1. *2L Milk*"
   assert "Price:" in block[1]
   assert "$4\\.99" in block[1]
@@ -216,7 +203,7 @@ def test_format_acknowledgement_includes_price() -> None:
   messenger = TelegramPreferenceMessenger(settings=settings, nag_strings=[])
   ack = messenger._format_acknowledgement(
     "✅ Noted",
-    ProductOption(title="2L Milk", price_cents=499),
+    ProductChoice(title="2L Milk", price_text="$4.99", url=HttpUrl("https://example.com/milk")),
   )
   assert ack.startswith("✅ Noted *2L Milk*")
   assert "$4\\.99" in ack

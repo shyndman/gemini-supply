@@ -11,7 +11,6 @@ import termcolor
 from playwright.async_api import ElementHandle, Page
 from playwright.async_api import TimeoutError as PlaywrightTimeout
 from playwright_captcha import CaptchaType, ClickSolver, FrameworkType
-from playwright_captcha.utils.camoufox_add_init_script.add_init_script import get_addon_path
 
 from gemini_supply.computers import CamoufoxHost
 
@@ -31,30 +30,14 @@ class AuthenticationError(RuntimeError):
   """Raised when automated authentication fails."""
 
 
-# TODO: Can we give this a TypedDict return type?
-def build_camoufox_options() -> dict[str, object]:
-  addon_path = get_addon_path()
-  return {
-    "humanize": True,
-    "config": {
-      "humanize:maxTime": 0.9,
-      "humanize:minTime": 0.6,
-      "showcursor": True,
-      "forceScopeAccess": True,
-    },
-    "addons": [os.path.abspath(addon_path)],
-    "main_world_eval": True,
-    "i_know_what_im_doing": True,
-    "disable_coop": True,
-  }
-
-
 class AuthManager:
   """Coordinates automated authentication with single-flight semantics."""
 
   def __init__(self, host: CamoufoxHost, auth_flow: AuthFlow | None = None) -> None:
     self._host = host
     self._auth_flow: AuthFlow = auth_flow or _run_default_auth_flow
+    # Keep single-flight semantics even when the orchestrator gates pre-shop auth; future
+    # reauthentication passes will rely on this to avoid duplicate login attempts.
     self._lock = asyncio.Lock()
     self._last_success: float | None = None
 
@@ -297,5 +280,4 @@ __all__ = [
   "AuthManager",
   "AuthenticationError",
   "SHORT_FENCE_WAIT_MS",
-  "build_camoufox_options",
 ]

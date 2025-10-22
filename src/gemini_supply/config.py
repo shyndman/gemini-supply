@@ -191,5 +191,5 @@ def load_config(path: Path | None) -> AppConfig:
 
   try:
     return AppConfig.model_validate(data)
-  except ValidationError as exc:
-    raise ValueError(f"Invalid configuration in {p}: {exc}") from exc
+  except ValidationError as e:
+    raise ValueError(f"Invalid configuration in {p}: {e}") from e

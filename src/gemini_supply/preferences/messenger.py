@@ -22,7 +22,7 @@ from telegram.ext import (
 )
 from telegram.helpers import escape_markdown
 
-from .types import ProductChoiceRequest, ProductChoiceResult, ProductOption
+from .types import ProductChoice, ProductChoiceRequest, ProductDecision
 
 
 @dataclass(slots=True)
@@ -36,7 +36,7 @@ class TelegramSettings:
 class PendingRequest:
   request_id: int
   request: ProductChoiceRequest
-  future: asyncio.Future[ProductChoiceResult]
+  future: asyncio.Future[ProductDecision]
   message_id: int
   nag_job_id: str
 
@@ -100,14 +100,14 @@ class TelegramPreferenceMessenger:
     await app.shutdown()
     self._application = None
 
-  async def request_choice(self, request: ProductChoiceRequest) -> ProductChoiceResult:
+  async def request_choice(self, request: ProductChoiceRequest) -> ProductDecision:
     if self._application is None:
       raise RuntimeError("TelegramPreferenceMessenger.start() must be called before use.")
     async with self._condition:
       while self._pending is not None:
         await self._condition.wait()
       loop = asyncio.get_running_loop()
-      future: asyncio.Future[ProductChoiceResult] = loop.create_future()
+      future: asyncio.Future[ProductDecision] = loop.create_future()
       request_id = self._next_request_id
       self._next_request_id += 1
       message_id = await self._send_prompt(request)
@@ -141,8 +141,8 @@ class TelegramPreferenceMessenger:
     lines.append("Titles, prices, and links are shown for each option.")
     lines.append("")
     buttons: list[list[InlineKeyboardButton]] = []
-    for idx, option in enumerate(request.options, start=1):
-      block = self._format_option_block(idx, option)
+    for idx, choice in enumerate(request.choices, start=1):
+      block = self._format_choice_block(idx, choice)
       lines.extend(block)
       lines.append("")
       buttons.append(
@@ -170,38 +170,34 @@ class TelegramPreferenceMessenger:
     )
     return message.message_id
 
-  def _format_option_block(self, idx: int, option: ProductOption) -> list[str]:
-    title = escape_markdown(option.title or f"Option {idx}", version=2)
+  def _format_choice_block(self, idx: int, choice: ProductChoice) -> list[str]:
+    title = escape_markdown(choice.title or f"Option {idx}", version=2)
     block: list[str] = [f"{idx}. *{title}*"]
-    price_display = self._option_price_display(option)
+    price_display = self._choice_price_display(choice)
     if price_display is not None:
       block.append("   Price: `" + escape_markdown(price_display, version=2) + "`")
-    if option.description:
-      block.append("   Description: " + escape_markdown(option.description, version=2))
-    if option.notes:
-      block.append("   Notes: " + escape_markdown(option.notes, version=2))
-    if option.url:
-      safe_url = escape_markdown(option.url, version=2)
+    if choice.url:
+      safe_url = escape_markdown(f"{choice.url}", version=2)
       block.append(f"   [View Product]({safe_url})")
     return block
 
   @staticmethod
-  def _option_price_display(option: ProductOption) -> str | None:
-    if option.price_text is not None:
-      trimmed = option.price_text.strip()
+  def _choice_price_display(choice: ProductChoice) -> str | None:
+    if choice.price_text is not None:
+      trimmed = choice.price_text.strip()
       if trimmed:
         return trimmed
-    if option.price_cents is not None and option.price_cents >= 0:
-      return f"${option.price_cents / 100:.2f}"
+    if choice.price_cents is not None and choice.price_cents >= 0:
+      return f"${choice.price_cents / 100:.2f}"
     return None
 
-  def _format_acknowledgement(self, status: str, option: ProductOption) -> str:
-    title_raw = option.title
-    title = title_raw.strip() if isinstance(title_raw, str) else "Selected option"
+  def _format_acknowledgement(self, status: str, choice: ProductChoice) -> str:
+    title_raw = choice.title
+    title = title_raw.strip() if isinstance(title_raw, str) else "Selected choice"
     if not title:
-      title = "Selected option"
+      title = "Selected choice"
     escaped_title = escape_markdown(title, version=2)
-    price_display = self._option_price_display(option)
+    price_display = self._choice_price_display(choice)
     if price_display is not None:
       escaped_price = escape_markdown(price_display, version=2)
       return f"{status} *{escaped_title}* - `{escaped_price}`"
@@ -262,10 +258,10 @@ class TelegramPreferenceMessenger:
     raw_data = (query.data or "").strip()
     lowered = raw_data.lower()
     if lowered == "skip":
-      result = ProductChoiceResult(
+      result = ProductDecision(
         decision="skip",
         selected_index=None,
-        selected_option=None,
+        selected_choice=None,
         make_default=False,
       )
       await self._resolve_pending(result)
@@ -290,14 +286,14 @@ class TelegramPreferenceMessenger:
       idx = int(idx_text)
     except ValueError:
       return
-    options = pending.request.options
-    if idx < 1 or idx > len(options):
+    choices = pending.request.choices
+    if idx < 1 or idx > len(choices):
       return
-    option = options[idx - 1]
-    result = ProductChoiceResult(
+    option = choices[idx - 1]
+    result = ProductDecision(
       decision="selected",
       selected_index=idx,
-      selected_option=option,
+      selected_choice=option,
       make_default=is_default,
     )
     await self._resolve_pending(result)
@@ -325,10 +321,10 @@ class TelegramPreferenceMessenger:
       return
     lowered = text.lower()
     if lowered == "skip":
-      result = ProductChoiceResult(
+      result = ProductDecision(
         decision="skip",
         selected_index=None,
-        selected_option=None,
+        selected_choice=None,
         make_default=False,
       )
       await self._resolve_pending(result)
@@ -338,19 +334,19 @@ class TelegramPreferenceMessenger:
         disable_notification=True,
       )
       return
-    parsed = self._parse_selection_text(text, len(pending.request.options))
+    parsed = self._parse_selection_text(text, len(pending.request.choices))
     if parsed is not None:
       idx, is_default = parsed
-      option = pending.request.options[idx - 1]
-      result = ProductChoiceResult(
+      choice = pending.request.choices[idx - 1]
+      result = ProductDecision(
         decision="selected",
         selected_index=idx,
-        selected_option=option,
+        selected_choice=choice,
         make_default=is_default,
       )
       await self._resolve_pending(result)
       ack_status = "✅ Default set" if is_default else "✅ Noted"
-      ack_message = self._format_acknowledgement(ack_status, option)
+      ack_message = self._format_acknowledgement(ack_status, choice)
       await context.bot.send_message(
         chat_id=self._settings.chat_id,
         text=ack_message,
@@ -358,10 +354,10 @@ class TelegramPreferenceMessenger:
         disable_notification=True,
       )
       return
-    result = ProductChoiceResult(
+    result = ProductDecision(
       decision="alternate",
       selected_index=None,
-      selected_option=None,
+      selected_choice=None,
       alternate_text=text,
       make_default=False,
     )
@@ -372,7 +368,7 @@ class TelegramPreferenceMessenger:
       disable_notification=True,
     )
 
-  async def _resolve_pending(self, result: ProductChoiceResult) -> None:
+  async def _resolve_pending(self, result: ProductDecision) -> None:
     pending = self._pending
     if pending is None:
       return
@@ -389,7 +385,7 @@ class TelegramPreferenceMessenger:
       except Exception:
         pass
 
-  def _parse_selection_text(self, text: str, option_count: int) -> tuple[int, bool] | None:
+  def _parse_selection_text(self, text: str, choice_count: int) -> tuple[int, bool] | None:
     collapsed = text.strip()
     if not collapsed:
       return None
@@ -413,6 +409,6 @@ class TelegramPreferenceMessenger:
     if not cleaned or not cleaned.isdigit():
       return None
     idx = int(cleaned)
-    if idx < 1 or idx > option_count:
+    if idx < 1 or idx > choice_count:
       return None
     return idx, is_default

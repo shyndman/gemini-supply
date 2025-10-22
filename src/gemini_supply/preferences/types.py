@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, HttpUrl, computed_field, field_validator, model_validator
+from pydantic.types import StringConstraints
+
+from gemini_supply.price_utils import parse_price_cents
+
+type NonEmptyString = Annotated[str, StringConstraints(min_length=1, strip_whitespace=True)]
 
 
 class PreferenceMetadata(BaseModel):
-  model_config = ConfigDict(extra="forbid")
-
   category_label: str | None = None
   brand: str | None = None
   updated_at_iso: str | None = None
@@ -34,38 +37,18 @@ class PreferenceMetadata(BaseModel):
 
 
 class PreferenceRecord(BaseModel):
-  model_config = ConfigDict(extra="forbid")
-
-  product_name: str
-  product_url: str
+  product_name: NonEmptyString
+  product_url: HttpUrl
   metadata: PreferenceMetadata = Field(default_factory=PreferenceMetadata)
-
-  @field_validator("product_name", "product_url")
-  @classmethod
-  def _require_non_empty(cls, value: str) -> str:
-    trimmed = value.strip()
-    if not trimmed:
-      raise ValueError("value must be a non-empty string")
-    return trimmed
 
 
 class NormalizedItem(BaseModel):
-  model_config = ConfigDict(extra="forbid", frozen=True)
-
-  canonical_key: str
-  category_label: str
-  original_text: str
+  canonical_key: NonEmptyString
+  category_label: NonEmptyString
+  original_text: NonEmptyString
   quantity: int = Field(default=1, ge=1)
   brand: str | None = None
   qualifiers: list[str] = Field(default_factory=list)
-
-  @field_validator("canonical_key", "category_label", "original_text")
-  @classmethod
-  def _strip_required(cls, value: str) -> str:
-    trimmed = value.strip()
-    if not trimmed:
-      raise ValueError("value must be a non-empty string")
-    return trimmed
 
   @field_validator("brand")
   @classmethod
@@ -88,80 +71,47 @@ class NormalizedItem(BaseModel):
     return cleaned
 
 
-class ProductOption(BaseModel):
-  model_config = ConfigDict(extra="forbid", frozen=True)
+class ProductChoice(BaseModel):
+  title: NonEmptyString
+  """The title of the product."""
+  url: HttpUrl
+  """The URL of the product page."""
+  price_text: NonEmptyString
+  """The price of the product as a formatted string, e.g. "$12.34"."""
 
-  title: str
-  url: str | None = None
-  description: str | None = None
-  notes: str | None = None
-  price_text: str | None = None
-  price_cents: int | None = Field(default=None, ge=0)
-
-  @field_validator("title")
-  @classmethod
-  def _validate_title(cls, value: str) -> str:
-    trimmed = value.strip()
-    if not trimmed:
-      raise ValueError("title must be non-empty")
-    return trimmed
-
-  @field_validator("description", "notes", "price_text")
-  @classmethod
-  def _normalize_optional_string(cls, value: str | None) -> str | None:
-    if value is None:
-      return None
-    trimmed = value.strip()
-    if not trimmed:
-      return None
-    return trimmed
-
-  @field_validator("url")
-  @classmethod
-  def _normalize_url(cls, value: str | None) -> str | None:
-    if value is None:
-      return None
-    trimmed = value.strip()
-    if not trimmed:
-      return None
-    return trimmed
+  @computed_field
+  @property
+  def price_cents(self) -> int:
+    """Computed price in cents from price_text."""
+    return parse_price_cents(self.price_text)
 
   @model_validator(mode="after")
-  def _ensure_price_text_prefix(self) -> ProductOption:
+  def _ensure_price_text_prefix(self) -> ProductChoice:
     if self.price_text is not None and not self.price_text.startswith("$"):
-      object.__setattr__(self, "price_text", f"${self.price_text}")
+      self.price_text = f"${self.price_text}"
     return self
 
 
 class ProductChoiceRequest(BaseModel):
-  model_config = ConfigDict(extra="forbid", frozen=True)
-
-  canonical_key: str
-  category_label: str
-  original_text: str
-  options: list[ProductOption]
-
-  @field_validator("canonical_key", "category_label", "original_text")
-  @classmethod
-  def _strip_required(cls, value: str) -> str:
-    trimmed = value.strip()
-    if not trimmed:
-      raise ValueError("value must be a non-empty string")
-    return trimmed
+  category_label: NonEmptyString
+  original_text: NonEmptyString
+  choices: list[ProductChoice]
 
   @model_validator(mode="after")
   def _limit_options(self) -> ProductChoiceRequest:
-    if len(self.options) > 10:
-      object.__setattr__(self, "options", self.options[:10])
+    if len(self.choices) > 10:
+      self.choices = self.choices[:10]
     return self
 
 
-class ProductChoiceResult(BaseModel):
-  model_config = ConfigDict(extra="forbid")
+class ProductDecision(BaseModel):
+  # TODO We need to shave this down to what the agent actually needs Also, let's make this a
+  # discriminated union (ie ProductDecision | SkipDecision | AlternateDecision) so we can be very
+  # specific about the fields, and can make the fields non-null
 
   decision: Literal["selected", "alternate", "skip"]
   selected_index: int | None = Field(default=None, ge=1)
-  selected_option: ProductOption | None = None
+  selected_choice: ProductChoice | None = None
   alternate_text: str | None = None
   message: str | None = None
   make_default: bool = False

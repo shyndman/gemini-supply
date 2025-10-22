@@ -13,7 +13,8 @@
 # limitations under the License.
 import asyncio
 import os
-from typing import TYPE_CHECKING, Any, Callable, Literal, TypeAlias, TypedDict, cast
+from enum import StrEnum
+from typing import Any, Callable, Literal, TypeAlias, TypedDict, cast
 
 import google.genai
 import termcolor
@@ -24,7 +25,6 @@ from google.genai.types import (
   Environment,
   FinishReason,
   FunctionCall,
-  FunctionDeclaration,
   FunctionResponse,
   FunctionResponseBlob,
   FunctionResponsePart,
@@ -36,21 +36,8 @@ from google.genai.types import (
 from rich.console import Console
 from rich.table import Table
 
-if TYPE_CHECKING:
-  from google.genai._api_client import BaseApiClient as _BaseApiClient
-else:
-  _BaseApiClient = Any
-
 from gemini_supply.computers import Computer, EnvState
-from gemini_supply.display import display_image_kitty
-from gemini_supply.grocery import (
-  ItemAddedResult,
-  ItemAddedResultModel,
-  ItemNotFoundResult,
-  ItemNotFoundResultModel,
-)
 from gemini_supply.log import TTYLogger
-from gemini_supply.preferences import PreferenceItemSession, ProductChoiceResult
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
 PREDEFINED_COMPUTER_USE_FUNCTIONS = [
@@ -82,56 +69,14 @@ class SafetyDecision(TypedDict):
 
 # Built-in Computer Use tools return EnvState.
 # Custom provided functions return typed dictionaries.
-FunctionResponseT = (
-  EnvState | ItemAddedResult | ItemNotFoundResult | ProductChoiceResult | dict[str, object]
-)
+ActionResult = EnvState  # | dict[str, object]
 
-CustomFunctionCallable: TypeAlias = Callable[..., FunctionResponseT]
+CustomFunctionCallable: TypeAlias = Callable[..., Any]
 
 
-def report_item_added(
-  item_name: str, price_text: str, price_cents: int, url: str, quantity: int = 1
-) -> ItemAddedResult:
-  """Report success adding an item to the cart."""
-  model = ItemAddedResultModel(
-    item_name=item_name,
-    price_text=price_text,
-    price_cents=price_cents,
-    url=url,
-    quantity=quantity,
-  )
-  return model.to_dataclass()
-
-
-def report_item_not_found(item_name: str, explanation: str) -> ItemNotFoundResult:
-  """Report that an item could not be located on metro.ca."""
-  model = ItemNotFoundResultModel(item_name=item_name, explanation=explanation)
-  return model.to_dataclass()
-
-
-def request_preference_choice(
-  canonical_key: str,
-  category_label: str,
-  options: list[dict[str, object]],
-) -> ProductChoiceResult:
-  """Request human input to choose a preferred product.
-
-  Args:
-    canonical_key: Normalized category slug (e.g., "milk").
-    category_label: Human-readable category label (e.g., "Milk").
-    options: Up to 10 structured product option dictionaries containing `title`,
-      price metadata (`price_text` and `price_cents`), optional `url`, and optional
-      descriptive text.
-
-  Returns:
-    A mapping describing the user's decision (selected index or alternate text).
-  """
-  return ProductChoiceResult(
-    decision="skip",
-    selected_index=None,
-    selected_option=None,
-    make_default=False,
-  )
+class LoopStatus(StrEnum):
+  COMPLETE = "COMPLETE"
+  CONTINUE = "CONTINUE"
 
 
 class BrowserAgent:
@@ -142,9 +87,9 @@ class BrowserAgent:
     model_name: str,
     verbose: bool = True,
     client: google.genai.Client | None = None,
-    logger: TTYLogger | None = None,
+    custom_tools: list[CustomFunctionCallable] = [],
     output_label: str | None = None,
-    preference_session: PreferenceItemSession | None = None,
+    logger: TTYLogger | None = None,
   ):
     self._browser_computer = browser_computer
     self._query = query
@@ -157,7 +102,6 @@ class BrowserAgent:
     self._client: google.genai.Client = client or google.genai.Client(
       api_key=os.environ.get("GEMINI_API_KEY"),
     )
-    self._preference_session = preference_session
     self._contents: list[Content] = [
       Content(
         role="user",
@@ -171,43 +115,27 @@ class BrowserAgent:
     excluded_predefined_functions: list[str] = []
 
     self._excluded_predefined_functions = excluded_predefined_functions
-    self._custom_function_callables: list[CustomFunctionCallable] = [
-      report_item_added,
-      report_item_not_found,
-      request_preference_choice,
-    ]
+    self._custom_tools: list[CustomFunctionCallable] = custom_tools
     self._generate_content_config: GenerateContentConfig | None = None
 
   def _ensure_client_and_config(self) -> None:
-    if self._generate_content_config is None:
-      # Build function declarations now that the client exists
-      api_client = getattr(self._client, "_api_client", None)
-      if api_client is None:
-        raise RuntimeError("Gemini client missing _api_client attribute")
-      custom_functions: list[FunctionDeclaration] = [
-        FunctionDeclaration.from_callable(
-          client=cast(_BaseApiClient, api_client),
-          callable=cast(Callable[..., Any], fn),
-        )
-        for fn in self._custom_function_callables
-      ]
-      self._generate_content_config = GenerateContentConfig(
-        temperature=1,
-        top_p=0.95,
-        top_k=40,
-        max_output_tokens=8192,
-        tools=[
-          Tool(
-            computer_use=ComputerUse(
-              environment=Environment.ENVIRONMENT_BROWSER,
-              excluded_predefined_functions=self._excluded_predefined_functions,
-            ),
+    self._generate_content_config = self._generate_content_config or GenerateContentConfig(
+      temperature=1,
+      top_p=0.95,
+      top_k=40,
+      max_output_tokens=8192,
+      tools=[
+        Tool(
+          computer_use=ComputerUse(
+            environment=Environment.ENVIRONMENT_BROWSER,
+            excluded_predefined_functions=self._excluded_predefined_functions,
           ),
-          Tool(function_declarations=custom_functions),
-        ],
-      )
+        ),
+        *self._custom_tools,
+      ],
+    )
 
-  async def handle_action(self, action: FunctionCall) -> FunctionResponseT:
+  async def handle_action(self, action: FunctionCall) -> ActionResult:
     """Handles the action and returns the environment state."""
     assert action.args is not None, f"Action {action.name} missing required args"
 
@@ -287,46 +215,6 @@ class BrowserAgent:
           destination_y=destination_y,
         )
 
-      case name if name == report_item_added.__name__:
-        result = report_item_added(
-          item_name=action.args["item_name"],
-          price_text=action.args["price_text"],
-          price_cents=action.args["price_cents"],
-          url=action.args["url"],
-          quantity=action.args.get("quantity", 1),
-        )
-        # Stash latest custom tool call for orchestrator visibility
-        self.last_custom_tool_call = {
-          "name": report_item_added.__name__,
-          "payload": result,
-        }
-        return result
-
-      case name if name == report_item_not_found.__name__:
-        result = report_item_not_found(
-          item_name=action.args["item_name"],
-          explanation=action.args["explanation"],
-        )
-        self.last_custom_tool_call = {
-          "name": report_item_not_found.__name__,
-          "payload": result,
-        }
-        return result
-
-      case name if name == request_preference_choice.__name__:
-        if self._preference_session is None:
-          raise ValueError("Preference session unavailable for preference choice request.")
-        opts_raw = action.args.get("options")
-        if not isinstance(opts_raw, list):
-          raise ValueError("request_preference_choice requires an 'options' list.")
-        choice_model = await self._preference_session.request_choice(opts_raw)  # type: ignore[arg-type]
-        choice = choice_model.model_dump(mode="python")
-        self.last_custom_tool_call = {
-          "name": request_preference_choice.__name__,
-          "payload": choice_model,
-        }
-        return choice
-
       case _:
         raise ValueError(f"Unsupported function: {action.name}")
 
@@ -403,7 +291,7 @@ class BrowserAgent:
         ret.append(part.function_call)
     return ret
 
-  async def run_one_iteration(self) -> Literal["COMPLETE", "CONTINUE"]:
+  async def run_one_iteration(self) -> LoopStatus:
     self._turn_index += 1
     # Generate a response from the model.
     if self._verbose:
@@ -432,12 +320,12 @@ class BrowserAgent:
       and not reasoning
       and candidate.finish_reason == FinishReason.MALFORMED_FUNCTION_CALL
     ):
-      return "CONTINUE"
+      return LoopStatus.CONTINUE
 
     if not function_calls:
       print(f"Agent Loop Complete: {reasoning}")
       self.final_reasoning = reasoning
-      return "COMPLETE"
+      return LoopStatus.COMPLETE
 
     function_call_strs: list[str] = []
     for function_call in function_calls:
@@ -472,7 +360,7 @@ class BrowserAgent:
           decision = self._get_safety_confirmation(safety)
           if decision == "TERMINATE":
             print("Terminating agent loop")
-            return "COMPLETE"
+            return LoopStatus.COMPLETE
           # Explicitly mark the safety check as acknowledged.
           extra_fr_fields["safety_acknowledgement"] = "true"
       if self._verbose:
@@ -487,26 +375,14 @@ class BrowserAgent:
         # Display the screenshot in the terminal using Kitty graphics protocol
         img_enabled = os.environ.get("GEMINI_SUPPLY_IMG_ENABLE", "1").strip().lower()
         show_img = img_enabled not in ("0", "false", "no")
-        max_w_env = os.environ.get("GEMINI_SUPPLY_IMG_MAX_WIDTH", "").strip()
-        max_w: int | None = None
-        if max_w_env:
-          try:
-            mw = int(max_w_env)
-            if mw > 0:
-              max_w = mw
-          except Exception:
-            max_w = None
-        if show_img:
-          if self._logger is not None:
-            await self._logger.show_screenshot(
-              label=self._output_label,
-              action_name=(function_call.name or ""),
-              url=env_state.url,
-              png_bytes=env_state.screenshot,
-              max_width=max_w,
-            )
-          else:
-            display_image_kitty(env_state.screenshot, max_width=max_w)
+
+        if show_img and self._logger is not None:
+          await self._logger.show_screenshot(
+            label=self._output_label,
+            action_name=(function_call.name or ""),
+            url=env_state.url,
+            png_bytes=env_state.screenshot,
+          )
         function_responses.append(
           FunctionResponse(
             name=function_call.name,
@@ -562,7 +438,7 @@ class BrowserAgent:
               ):
                 part.function_response.parts = None
 
-    return "CONTINUE"
+    return LoopStatus.CONTINUE
 
   def _get_safety_confirmation(self, safety: SafetyDecision) -> Literal["CONTINUE", "TERMINATE"]:
     """Prompts user for safety confirmation when required by the model."""
@@ -583,8 +459,8 @@ class BrowserAgent:
 
   async def agent_loop(self) -> None:
     """Runs the main agent loop until completion."""
-    status: Literal["COMPLETE", "CONTINUE"] = "CONTINUE"
-    while status == "CONTINUE":
+    status: LoopStatus = LoopStatus.CONTINUE
+    while status == LoopStatus.CONTINUE:
       status = await self.run_one_iteration()
 
   def close(self) -> None:
@@ -596,14 +472,6 @@ class BrowserAgent:
     finally:
       # Keep the reference for type safety; the client is closed.
       ...
-
-  # --- Orchestrator visibility (non-API) ---
-
-  class _CustomToolCall(TypedDict):
-    name: str
-    payload: ItemAddedResult | ItemNotFoundResult | ProductChoiceResult
-
-  last_custom_tool_call: _CustomToolCall | None = None
 
   def denormalize_x(self, x: int | float) -> int:
     """Denormalizes x coordinate from 1000-based system to actual screen width."""

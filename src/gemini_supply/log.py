@@ -37,12 +37,11 @@ class TTYLogger:
     action_name: str,
     url: str,
     png_bytes: bytes,
-    max_width: int | None,
   ) -> None:
     async with self._lock:
       if label:
         self._console.print(f"[cyan]{label}[/cyan] → {action_name} @ {url}")
-      display_image_kitty(png_bytes, max_width=max_width)
+      display_image_kitty(png_bytes)
 
 
 __all__ = ["setup_logging", "TTYLogger"]

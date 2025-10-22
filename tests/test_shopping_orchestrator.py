@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pytest
+
+from gemini_supply.orchestrator import OrchestrationStage, OrchestrationState
 from gemini_supply.config import ConcurrencyConfig
 from gemini_supply.grocery import (
   ItemAddedResult,
@@ -68,3 +71,35 @@ def test_concurrency_len_empty_list_returns_one() -> None:
   setting = ConcurrencyConfig(value="len")
   value = setting.resolve(0)
   assert value == 1
+
+
+class StubAuthManager:
+  def __init__(self) -> None:
+    self.calls: list[bool] = []
+
+  async def ensure_authenticated(self, *, force: bool = False) -> None:
+    self.calls.append(force)
+
+
+@pytest.mark.asyncio
+async def test_orchestration_state_runs_auth_once() -> None:
+  state = OrchestrationState()
+  auth_manager = StubAuthManager()
+
+  await state.ensure_pre_shop_auth(auth_manager)
+  await state.ensure_pre_shop_auth(auth_manager)
+
+  assert auth_manager.calls == [False]
+  assert state.stage is OrchestrationStage.SHOPPING
+
+
+@pytest.mark.asyncio
+async def test_orchestration_state_force_runs_even_when_shopping() -> None:
+  state = OrchestrationState()
+  auth_manager = StubAuthManager()
+
+  await state.ensure_pre_shop_auth(auth_manager)
+  await state.ensure_pre_shop_auth(auth_manager, force=True)
+
+  assert auth_manager.calls == [False, True]
+  assert state.stage is OrchestrationStage.SHOPPING

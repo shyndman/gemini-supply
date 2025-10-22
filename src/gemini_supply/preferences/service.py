@@ -1,21 +1,21 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from decimal import Decimal, InvalidOperation
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 
 from gemini_supply.grocery import ItemAddedResult
 
+from .messenger import TelegramPreferenceMessenger
 from .normalizer import NormalizationAgent
 from .store import PreferenceStore
-from .messenger import TelegramPreferenceMessenger
 from .types import (
+  HttpUrl,
   NormalizedItem,
-  PreferenceRecord,
   PreferenceMetadata,
+  PreferenceRecord,
+  ProductChoice,
   ProductChoiceRequest,
-  ProductChoiceResult,
-  ProductOption,
+  ProductDecision,
 )
 
 
@@ -92,24 +92,22 @@ class PreferenceItemSession:
     self._has_existing_preference = False
     return None
 
-  async def request_choice(self, options: Sequence[Mapping[str, object]]) -> ProductChoiceResult:
+  async def request_choice(self, choices: list[ProductChoice]) -> ProductDecision:
     messenger = self._coordinator.messenger
     if messenger is None:
-      return ProductChoiceResult(
+      return ProductDecision(
         decision="skip",
         selected_index=None,
-        selected_option=None,
+        selected_choice=None,
         message="Preference prompting is disabled; proceeding without selection.",
         make_default=False,
       )
     self._prompt_invoked = True
     self._make_default_on_success = False
-    coerced_options = _coerce_options(options)
     request = ProductChoiceRequest(
-      canonical_key=self._normalized.canonical_key,
       category_label=self._normalized.category_label,
       original_text=self._normalized.original_text,
-      options=coerced_options[:10],
+      choices=choices,
     )
     result = await messenger.request_choice(request)
     if result.decision == "selected" and result.make_default:
@@ -118,8 +116,7 @@ class PreferenceItemSession:
       self._make_default_on_success = False
     return result
 
-  async def record_success(self, added: ItemAddedResult, *, default_used: bool) -> None:
-    _ = default_used  # Reserved for follow-up reporting/analytics.
+  async def record_success(self, added: ItemAddedResult) -> None:
     make_default = self._make_default_on_success
     self._make_default_on_success = False
     metadata = PreferenceMetadata(
@@ -129,7 +126,7 @@ class PreferenceItemSession:
     if make_default:
       record = PreferenceRecord(
         product_name=added.item_name,
-        product_url=added.url,
+        product_url=HttpUrl(added.url),
         metadata=metadata,
       )
       await self._coordinator.store.set(self._normalized.canonical_key, record)
@@ -142,39 +139,6 @@ class _SentinelType:
 
 
 _SENTINEL = _SentinelType()
-
-
-def _coerce_options(raw_options: Sequence[Mapping[str, object]]) -> list[ProductOption]:
-  coerced: list[ProductOption] = []
-  for idx, raw in enumerate(raw_options, start=1):
-    title_val = raw.get("title") or raw.get("name") or raw.get("label") or f"Option {idx}"
-    title = str(title_val).strip()
-    if not title:
-      title = f"Option {idx}"
-    option_data: dict[str, object] = {"title": title}
-    url_val = raw.get("url") or raw.get("href")
-    if isinstance(url_val, str) and url_val.strip():
-      option_data["url"] = url_val.strip()
-    desc_val = raw.get("description") or raw.get("subtitle") or raw.get("notes")
-    if isinstance(desc_val, str) and desc_val.strip():
-      option_data["description"] = desc_val.strip()
-    price_text_val = (
-      raw.get("price_text") or raw.get("price") or raw.get("priceText") or raw.get("amount")
-    )
-    price_text = _normalize_price_text(price_text_val)
-    price_cents_val = raw.get("price_cents") or raw.get("priceCents")
-    price_cents = _normalize_price_cents(price_cents_val)
-    if price_cents is None and price_text is not None:
-      price_cents = _derive_price_cents_from_text(price_text)
-    if price_text is None and price_cents is not None:
-      price_text = f"${price_cents / 100:.2f}"
-    if price_text is not None:
-      option_data["price_text"] = price_text
-    if price_cents is not None:
-      option_data["price_cents"] = price_cents
-    option = ProductOption.model_validate(option_data)
-    coerced.append(option)
-  return coerced
 
 
 def _normalize_price_text(value: object) -> str | None:

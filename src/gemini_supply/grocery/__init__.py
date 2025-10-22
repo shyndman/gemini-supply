@@ -9,9 +9,7 @@ from .shopping_list import (
 )
 from .types import (
   ItemAddedResult,
-  ItemAddedResultModel,
   ItemNotFoundResult,
-  ItemNotFoundResultModel,
   ItemStatus,
   ShoppingListItem,
   ShoppingSummary,
@@ -21,8 +19,6 @@ __all__ = [
   "ShoppingListProvider",
   "ItemAddedResult",
   "ItemNotFoundResult",
-  "ItemAddedResultModel",
-  "ItemNotFoundResultModel",
   "ItemStatus",
   "ShoppingListItem",
   "ShoppingSummary",
