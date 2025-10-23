@@ -157,4 +157,12 @@ class ShoppingSession:
     Returns:
       ProductDecision describing the user's choice (selected index, alternate text, or skip)
     """
-    return asyncio.run(self.preference_session.request_choice(choices))
+    decision = asyncio.run(self.preference_session.request_choice(choices))
+
+    # Handle skip decision immediately without involving the agent further
+    if decision.decision == "skip":
+      self.report_item_not_found(
+        self.item.name, "User chose to skip this item during product selection"
+      )
+
+    return decision

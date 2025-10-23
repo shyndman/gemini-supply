@@ -414,49 +414,66 @@ def _build_task_prompt(
   preference: PreferenceRecord | None,
   specific_request: bool,
 ) -> str:
-  # Build conditional sections
-  return "".join(
-    [
-      f"Detected brand: {normalized.brand}\n" if normalized.brand else "",
-      f"Qualifiers: {', '.join(normalized.qualifiers)}\n" if normalized.qualifiers else "",
-      "Specific request detected; ignore previously stored defaults.\n\n"
-      if specific_request
-      else "",
-      textwrap.dedent(f"""
-      Known preference available:
+  from urllib.parse import quote_plus
+
+  if preference is not None:
+    # Case 1: We have a known preference - go directly to it
+    return textwrap.dedent(f"""
+      Product to add:
+      - Quantity: {normalized.quantity}
       - Product: {preference.product_name}
       - URL: {preference.product_url}
-      Always prioritise this product unless it is unavailable or clearly incorrect.
 
-      """)
-      if preference
-      else "",
-      textwrap.dedent("""
       Instructions:
 
-      1. Use metro.ca to find the product.
-      2. Prefer using navigate to open the search results page (SRP) directly:
-        https://www.metro.ca/en/online-grocery/search?filter={{ENCODED_QUERY}}
-        Otherwise, use the header search input present on all pages.
-      3. From the SRP, choose the best-matching result. CLICK THE PRODUCT IMAGE or name to open the product's page.
-      4. On the product page, press 'Add to Cart'.
-        If the "Delivery or Pickup?" form appears, click the "I haven't made my choice yet" link at the bottom to defer selection, then press 'Add to Cart' again on the product page.
-      5. Verify success: The 'Add to Cart' button becomes a quantity control (with +/−).
-        If it does not change, try again or explain why it failed.
-      6. Call report_item_added(item_name, price_text, url, quantity) when successful.
-        The 'url' MUST be the product page URL (NOT the search results page).
-      7. If product cannot be located after reasonable attempts, call report_item_not_found(item_name, explanation).
-      8. When you cannot confidently pick a product, call request_product_choice with up to 10 promising SRP results.
-        Include title, price_text (currency string), and the product URL for each option.
-        Wait for the response before continuing.
+      1. Navigate directly to the product URL above.
+      2. On the product page, press 'Add to Cart'.
+         If the "Delivery or Pickup?" form appears, click the "I haven't made my choice yet" link at the bottom to defer selection, then press 'Add to Cart' again.
+      3. Verify success: The 'Add to Cart' button becomes a quantity control (with +/−).
+         If it does not change, try again or explain why it failed.
+      4. Call report_item_added(item_name, price_text, url, quantity) when successful.
+         The 'url' MUST be the product page URL.
+      5. If the product is unavailable or out of stock, call report_item_not_found(item_name, explanation).
 
       Constraints:
         - Stay on metro.ca and allowed resources only.
         - Do NOT navigate to checkout, payment, or account pages.
         - Focus solely on adding the requested item.
-  """),
-    ]
-  )
+      """)
+
+  # Case 2: No preference - search and decide
+  encoded_query = quote_plus(item_name)
+  search_url = f"https://www.metro.ca/en/online-grocery/search?filter={encoded_query}"
+
+  return textwrap.dedent(f"""
+    Product to add: {item_name}
+
+    Instructions:
+
+    1. Navigate to the search results page: {search_url}
+    2. Examine the results. Based on what the user wrote ("{item_name}"), can you confidently pick the best match?
+       - If YES: Proceed to step 3.
+       - If NO (multiple reasonable options, ambiguous request): Call request_product_choice with up to 10 promising results.
+         Include title, price_text (currency string), and the product URL for each option.
+         The response will be a ProductDecision with a 'decision' field:
+         * If decision="selected": Use the URL from 'selected_choice' to navigate to that product, then proceed to step 3.
+         * If decision="alternate": The user provided new text in 'alternate_text'. Search for this alternate text instead.
+           If the alternate includes a quantity (e.g., "3 whole milk"), use that quantity. Otherwise, keep the original quantity.
+           Start over from step 1 with the new search.
+    3. CLICK THE PRODUCT IMAGE or name to open the product page (or navigate directly if you have a URL from ProductDecision).
+    4. On the product page, press 'Add to Cart'.
+       If the "Delivery or Pickup?" form appears, click the "I haven't made my choice yet" link at the bottom to defer selection, then press 'Add to Cart' again.
+    5. Verify success: The 'Add to Cart' button becomes a quantity control (with +/−).
+       If it does not change, try again or explain why it failed.
+    6. Call report_item_added(item_name, price_text, url, quantity) when successful.
+       The 'url' MUST be the product page URL (NOT the search results page).
+    7. If product cannot be located after reasonable attempts, call report_item_not_found(item_name, explanation).
+
+    Constraints:
+      - Stay on metro.ca and allowed resources only.
+      - Do NOT navigate to checkout, payment, or account pages.
+      - Focus solely on adding the requested item.
+    """)
 
 
 async def _shop_single_item_in_tab(
