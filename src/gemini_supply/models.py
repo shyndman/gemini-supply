@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Literal, TYPE_CHECKING
@@ -109,7 +110,7 @@ class ShoppingSession:
   preference_session: PreferenceItemSession
   result: ItemAddedResult | ItemNotFoundResult | None = None
 
-  async def report_item_added(
+  def report_item_added(
     self, item_name: str, price_text: str, url: str, quantity: int = 1
   ) -> ItemAddedResult:
     """Report success adding an item to the cart.
@@ -130,10 +131,10 @@ class ShoppingSession:
       quantity=quantity,
     )
     self.provider.mark_completed(self.item.id, self.result)
-    await self.preference_session.record_success(self.result)
+    asyncio.run(self.preference_session.record_success(self.result))
     return self.result
 
-  async def report_item_not_found(self, item_name: str, explanation: str) -> ItemNotFoundResult:
+  def report_item_not_found(self, item_name: str, explanation: str) -> ItemNotFoundResult:
     """Report that an item could not be located.
 
     Args:
@@ -147,7 +148,7 @@ class ShoppingSession:
     self.provider.mark_not_found(self.item.id, self.result)
     return self.result
 
-  async def request_product_choice(self, choices: list[ProductChoice]) -> ProductDecision:
+  def request_product_choice(self, choices: list[ProductChoice]) -> ProductDecision:
     """Request human input to choose a preferred product.
 
     Args:
@@ -156,4 +157,4 @@ class ShoppingSession:
     Returns:
       ProductDecision describing the user's choice (selected index, alternate text, or skip)
     """
-    return await self.preference_session.request_choice(choices)
+    return asyncio.run(self.preference_session.request_choice(choices))

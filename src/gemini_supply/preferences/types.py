@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field, HttpUrl, computed_field, field_validator, model_validator
 from pydantic.types import StringConstraints
 
-from gemini_supply.price_utils import parse_price_cents
+from gemini_supply.utils.currency import parse_price_cents
 
 type NonEmptyString = Annotated[str, StringConstraints(min_length=1, strip_whitespace=True)]
 

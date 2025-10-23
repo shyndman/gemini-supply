@@ -6,18 +6,11 @@ from typing import Annotated, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from gemini_supply.utils.strings import trim
+
 DEFAULT_CONFIG_PATH = Path("~/.config/gemini-supply/config.yaml").expanduser()
 DEFAULT_PREFERENCES_PATH = Path("~/.config/gemini-supply/preferences.yaml").expanduser()
 MAX_CONCURRENCY = 20
-
-
-def _trim(value: str | None) -> str | None:
-  if value is None:
-    return None
-  trimmed = value.strip()
-  if not trimmed:
-    return None
-  return trimmed
 
 
 class ConcurrencyConfig(BaseModel):
@@ -67,7 +60,7 @@ class HomeAssistantShoppingListConfig(BaseModel):
   @field_validator("url", "token", mode="after")
   @classmethod
   def _normalize(cls, value: str) -> str:
-    trimmed = _trim(value)
+    trimmed = trim(value)
     if trimmed is None:
       raise ValueError("value must be a non-empty string")
     return trimmed
@@ -89,7 +82,7 @@ class PreferencesTelegramConfig(BaseModel):
   @field_validator("bot_token", mode="after")
   @classmethod
   def _normalize_bot_token(cls, value: str) -> str:
-    trimmed = _trim(value)
+    trimmed = trim(value)
     if trimmed is None:
       raise ValueError("bot_token must be a non-empty string")
     return trimmed
@@ -126,7 +119,7 @@ class PreferencesConfig(BaseModel):
   @field_validator("normalizer_model", "normalizer_api_base_url", mode="after")
   @classmethod
   def _normalize_required_str(cls, value: str) -> str:
-    trimmed = _trim(value)
+    trimmed = trim(value)
     if trimmed is None:
       raise ValueError("value must be a non-empty string")
     return trimmed
@@ -134,7 +127,7 @@ class PreferencesConfig(BaseModel):
   @field_validator("normalizer_api_key", mode="after")
   @classmethod
   def _normalize_optional_str(cls, value: str | None) -> str | None:
-    return _trim(value)
+    return trim(value)
 
 
 class AppConfig(BaseModel):

@@ -41,15 +41,9 @@ class AuthManager:
     self._lock = asyncio.Lock()
     self._last_success: float | None = None
 
-  async def ensure_authenticated(self, *, force: bool = False) -> None:
-    if not force and await self._session_is_valid():
-      return
+  async def ensure_authenticated(self) -> None:
     async with self._lock:
-      if not force and await self._session_is_valid():
-        return
       await self._auth_flow(self._host)
-      if not await self._session_is_valid():
-        raise AuthenticationError("Authentication flow completed without a valid session.")
       self._last_success = time.monotonic()
 
   async def _session_is_valid(self) -> bool:

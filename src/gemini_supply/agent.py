@@ -18,13 +18,19 @@ from typing import Any, Callable, Literal, TypeAlias, TypedDict, cast
 
 import google.genai
 import termcolor
+from google.genai._extra_utils import (
+  convert_number_values_for_dict_function_call_args,
+  invoke_function_from_dict_args,
+)
 from google.genai.types import (
   Candidate,
   ComputerUse,
   Content,
+  ContentListUnionDict,
   Environment,
   FinishReason,
   FunctionCall,
+  FunctionDeclaration,
   FunctionResponse,
   FunctionResponseBlob,
   FunctionResponsePart,
@@ -89,16 +95,18 @@ class BrowserAgent:
     client: google.genai.Client | None = None,
     custom_tools: list[CustomFunctionCallable] = [],
     output_label: str | None = None,
+    agent_label: str | None = None,
     logger: TTYLogger | None = None,
   ):
     self._browser_computer = browser_computer
     self._query = query
     self._model_name = model_name
     self._verbose = verbose
-    self.final_reasoning: str | None = None
-    self._turn_index: int = 0
-    self._logger: TTYLogger | None = logger
-    self._output_label: str | None = output_label
+    self.final_reasoning = None
+    self._turn_index = 0
+    self._logger = logger
+    self._output_label = output_label
+    self._agent_label = agent_label
     self._client: google.genai.Client = client or google.genai.Client(
       api_key=os.environ.get("GEMINI_API_KEY"),
     )
@@ -111,12 +119,20 @@ class BrowserAgent:
       )
     ]
 
-    # Exclude any predefined functions here.
-    excluded_predefined_functions: list[str] = []
-
-    self._excluded_predefined_functions = excluded_predefined_functions
-    self._custom_tools: list[CustomFunctionCallable] = custom_tools
+    self._excluded_predefined_functions: list[str] = []
+    self._custom_tools_by_name = {
+      fn.__name__: (
+        FunctionDeclaration.from_callable(client=self._client._api_client, callable=fn),
+        fn,
+      )
+      for fn in custom_tools
+    }
     self._generate_content_config: GenerateContentConfig | None = None
+
+  def _with_agent_prefix(self, message: str) -> str:
+    if not self._agent_label:
+      return message
+    return f"[{self._agent_label}] {message}"
 
   def _ensure_client_and_config(self) -> None:
     self._generate_content_config = self._generate_content_config or GenerateContentConfig(
@@ -131,14 +147,13 @@ class BrowserAgent:
             excluded_predefined_functions=self._excluded_predefined_functions,
           ),
         ),
-        *self._custom_tools,
+        Tool(function_declarations=[decl for (decl, _) in self._custom_tools_by_name.values()]),
       ],
     )
 
   async def handle_action(self, action: FunctionCall) -> ActionResult:
     """Handles the action and returns the environment state."""
     assert action.args is not None, f"Action {action.name} missing required args"
-
     match action.name:
       case "open_web_browser":
         return await self._browser_computer.open_web_browser()
@@ -215,6 +230,11 @@ class BrowserAgent:
           destination_y=destination_y,
         )
 
+      case _ if action.name in self._custom_tools_by_name:
+        (_, custom_fn) = self._custom_tools_by_name[action.name]
+        args = convert_number_values_for_dict_function_call_args(action.args)
+        return invoke_function_from_dict_args(args, custom_fn)
+
       case _:
         raise ValueError(f"Unsupported function: {action.name}")
 
@@ -227,7 +247,7 @@ class BrowserAgent:
   ) -> GenerateContentResponse:
     response = self._client.models.generate_content(
       model=model,
-      contents=contents,
+      contents=cast(ContentListUnionDict, contents),
       config=config,
     )
     return cast(GenerateContentResponse, response)
@@ -250,20 +270,20 @@ class BrowserAgent:
         )
         return response  # Return response on success
       except Exception as e:
-        print(e)
+        print(self._with_agent_prefix(str(e)))
         if attempt < max_retries - 1:
           delay = base_delay_s * (2**attempt)
           message = (
             f"Generating content failed on attempt {attempt + 1}. Retrying in {delay} seconds...\n"
           )
           termcolor.cprint(
-            message,
+            self._with_agent_prefix(message),
             color="yellow",
           )
           await asyncio.sleep(delay)
         else:
           termcolor.cprint(
-            f"Generating content failed after {max_retries} attempts.\n",
+            self._with_agent_prefix(f"Generating content failed after {max_retries} attempts.\n"),
             color="red",
           )
           raise
@@ -294,14 +314,11 @@ class BrowserAgent:
   async def run_one_iteration(self) -> LoopStatus:
     self._turn_index += 1
     # Generate a response from the model.
-    if self._verbose:
-      with console.status("Generating response from Gemini Computer Use..."):
-        response = await self.get_model_response()
-    else:
+    with console.status(self._with_agent_prefix("Generating response from Gemini Computer Use...")):
       response = await self.get_model_response()
 
     if not response.candidates:
-      print("Response has no candidates!")
+      print(self._with_agent_prefix("Response has no candidates!"))
       print(response)
       raise ValueError("Empty response")
 
@@ -323,7 +340,7 @@ class BrowserAgent:
       return LoopStatus.CONTINUE
 
     if not function_calls:
-      print(f"Agent Loop Complete: {reasoning}")
+      print(self._with_agent_prefix(f"Agent Loop Complete: {reasoning}"))
       self.final_reasoning = reasoning
       return LoopStatus.COMPLETE
 
@@ -359,12 +376,12 @@ class BrowserAgent:
           safety = cast(SafetyDecision, safety_obj)
           decision = self._get_safety_confirmation(safety)
           if decision == "TERMINATE":
-            print("Terminating agent loop")
+            print(self._with_agent_prefix("Terminating agent loop"))
             return LoopStatus.COMPLETE
           # Explicitly mark the safety check as acknowledged.
           extra_fr_fields["safety_acknowledgement"] = "true"
       if self._verbose:
-        with console.status("Sending command to Computer..."):
+        with console.status(self._with_agent_prefix("Sending command to Computer...")):
           fc_result = await self.handle_action(function_call)
       else:
         fc_result = await self.handle_action(function_call)
@@ -372,7 +389,7 @@ class BrowserAgent:
       # Handle EnvState responses from computer use functions
       if isinstance(fc_result, EnvState):
         env_state = cast(EnvState, fc_result)
-        # Display the screenshot in the terminal using Kitty graphics protocol
+        # Render the screenshot in the terminal using term-image
         img_enabled = os.environ.get("GEMINI_SUPPLY_IMG_ENABLE", "1").strip().lower()
         show_img = img_enabled not in ("0", "false", "no")
 
@@ -445,14 +462,14 @@ class BrowserAgent:
     if safety["decision"] != "require_confirmation":
       raise ValueError(f"Unknown safety decision: {safety['decision']}")
     termcolor.cprint(
-      "Safety service requires explicit confirmation!",
+      self._with_agent_prefix("Safety service requires explicit confirmation!"),
       color="yellow",
       attrs=["bold"],
     )
-    print(safety["explanation"])
+    print(self._with_agent_prefix(safety["explanation"]))
     user_decision = ""
     while user_decision.lower() not in ("y", "n", "ye", "yes", "no"):
-      user_decision = input("Do you wish to proceed? [Yes]/[No]\n")
+      user_decision = input(self._with_agent_prefix("Do you wish to proceed? [Yes]/[No]\n"))
     if user_decision.lower() in ("n", "no"):
       return "TERMINATE"
     return "CONTINUE"

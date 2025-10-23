@@ -97,23 +97,6 @@ async def test_tab_current_state(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tab_search(tmp_path: Path) -> None:
-  async with CamoufoxHost(
-    screen_size=ScreenSize(1440, 900),
-    initial_url="https://www.example.com",
-    search_engine_url="https://www.google.com",
-    enforce_restrictions=False,
-    user_data_dir=tmp_path,
-  ) as host:
-    tab = await host.new_tab()
-    async with tab:
-      await tab.navigate("https://www.example.com")
-      state = await tab.search()
-      assert isinstance(state, EnvState)
-      assert "google.com" in state.url.lower()
-
-
-@pytest.mark.asyncio
 async def test_tab_key_combination(tmp_path: Path) -> None:
   async with CamoufoxHost(
     screen_size=ScreenSize(1440, 900),

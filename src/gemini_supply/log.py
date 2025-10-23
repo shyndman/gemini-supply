@@ -4,6 +4,7 @@ import asyncio
 import logging
 from typing import Optional
 
+import logfire
 from rich.console import Console
 from rich.table import Table
 
@@ -13,7 +14,10 @@ from gemini_supply.display import display_image_kitty
 def setup_logging() -> None:
   """Configure logging for the application."""
   # Suppress all logging from third-party libraries
-  logging.disable(logging.CRITICAL)
+  logging.getLogger("playwright-captcha").setLevel(logging.CRITICAL)
+  logfire.configure(console=logfire.ConsoleOptions(verbose=True))
+  logfire.instrument_httpx()
+  logfire.instrument_pydantic_ai()
 
 
 class TTYLogger:

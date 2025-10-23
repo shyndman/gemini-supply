@@ -6,9 +6,9 @@ import textwrap
 import time
 from dataclasses import dataclass
 from datetime import timedelta
-from pathlib import Path
 from enum import Enum
-from typing import Literal, Protocol, Sequence
+from pathlib import Path
+from typing import Literal, Mapping, Protocol, Sequence
 
 import termcolor
 
@@ -66,7 +66,7 @@ class PreferenceResources:
 
 
 class AuthEnsurer(Protocol):
-  async def ensure_authenticated(self, *, force: bool = False) -> None: ...
+  async def ensure_authenticated(self) -> None: ...
 
 
 class OrchestrationStage(Enum):
@@ -87,12 +87,18 @@ class OrchestrationState:
   def stage(self) -> OrchestrationStage:
     return self._stage
 
-  async def ensure_pre_shop_auth(self, auth_manager: AuthEnsurer, *, force: bool = False) -> None:
+  async def ensure_pre_shop_auth(self, auth_manager: AuthEnsurer) -> None:
     async with self._lock:
-      if self._stage is OrchestrationStage.SHOPPING and not force:
+      termcolor.cprint(
+        f"[stage] acquired auth gate (stage={self._stage.value})",
+        color="white",
+      )
+      if self._stage is OrchestrationStage.SHOPPING:
+        termcolor.cprint("[stage] skipping auth; already shopping.", color="magenta")
         return
-      await auth_manager.ensure_authenticated(force=force)
+      await auth_manager.ensure_authenticated()
       self._stage = OrchestrationStage.SHOPPING
+      termcolor.cprint("[stage] promoted stage to shopping.", color="green")
 
 
 async def run_shopping(
@@ -198,9 +204,18 @@ async def _run_shopping_flow(
   else:
     headless_mode = "virtual"
 
+  if headless_mode == "virtual":
+    headless_label = "virtual"
+  elif headless_mode is False:
+    headless_label = "headed"
+  else:
+    headless_label = "headless"
+  termcolor.cprint(f"Resolved headless mode: {headless_label}", color="cyan")
+
+  agent_labels = {item.id: f"agent-{idx + 1}" for idx, item in enumerate(items)}
   termcolor.cprint(
-    f"Resolved headless mode: {'virtual' if headless_mode == 'virtual' else 'headed' if headless_mode is False else 'headless'}",
-    color="cyan",
+    f"[stage] Initialized orchestration state with {len(agent_labels)} agents.",
+    color="blue",
   )
 
   async with CamoufoxHost(
@@ -215,7 +230,7 @@ async def _run_shopping_flow(
   ) as host:
     auth_manager = AuthManager(host)
     state = OrchestrationState()
-    await state.ensure_pre_shop_auth(auth_manager, force=True)
+    await state.ensure_pre_shop_auth(auth_manager)
     if effective_concurrency <= 1:
       return await _run_sequential(
         host=host,
@@ -226,6 +241,7 @@ async def _run_shopping_flow(
         preferences=preferences,
         auth_manager=auth_manager,
         state=state,
+        agent_labels=agent_labels,
       )
     return await _run_concurrent(
       host=host,
@@ -237,6 +253,7 @@ async def _run_shopping_flow(
       concurrency=effective_concurrency,
       auth_manager=auth_manager,
       state=state,
+      agent_labels=agent_labels,
     )
 
 
@@ -250,9 +267,11 @@ async def _run_sequential(
   preferences: PreferenceResources,
   auth_manager: AuthManager,
   state: OrchestrationState,
+  agent_labels: Mapping[str, str],
 ) -> ShoppingResults:
   results = ShoppingResults()
   for item in items:
+    agent_label = agent_labels.get(item.id, f"agent-{item.id}")
     try:
       outcome = await _process_item(
         host=host,
@@ -263,9 +282,15 @@ async def _run_sequential(
         preferences=preferences,
         auth_manager=auth_manager,
         state=state,
+        agent_label=agent_label,
       )
     except Exception as exc:  # noqa: BLE001
-      await _handle_processing_exception(item, exc, provider)
+      await _handle_processing_exception(
+        item,
+        exc,
+        provider,
+        agent_label=agent_label,
+      )
       outcome = FailedOutcome(error=str(exc))
     results.record(outcome)
   return results
@@ -282,6 +307,7 @@ async def _run_concurrent(
   concurrency: int,
   auth_manager: AuthManager,
   state: OrchestrationState,
+  agent_labels: Mapping[str, str],
 ) -> ShoppingResults:
   results = ShoppingResults()
   sem = asyncio.Semaphore(concurrency)
@@ -289,6 +315,7 @@ async def _run_concurrent(
 
   async def run_one(item: ShoppingListItem) -> None:
     async with sem:
+      agent_label = agent_labels.get(item.id, f"agent-{item.id}")
       try:
         outcome = await _process_item(
           host=host,
@@ -299,10 +326,16 @@ async def _run_concurrent(
           preferences=preferences,
           auth_manager=auth_manager,
           state=state,
+          agent_label=agent_label,
         )
         collected.append((item, outcome))
       except Exception as exc:  # noqa: BLE001
-        await _handle_processing_exception(item, exc, provider)
+        await _handle_processing_exception(
+          item,
+          exc,
+          provider,
+          agent_label=agent_label,
+        )
         collected.append((item, FailedOutcome(error=str(exc))))
 
   async with asyncio.TaskGroup() as tg:
@@ -326,10 +359,19 @@ async def _process_item(
   preferences: PreferenceResources,
   auth_manager: AuthManager,
   state: OrchestrationState,
+  agent_label: str,
 ) -> Outcome:
   existing_preference: PreferenceRecord | None = None
   specific_request = False
+  termcolor.cprint(
+    f"[{agent_label}] Begin pre-shop auth check for '{item.name}'.",
+    color="white",
+  )
   await state.ensure_pre_shop_auth(auth_manager)
+  termcolor.cprint(
+    f"[{agent_label}] Stage is {state.stage.value} after auth check.",
+    color="white",
+  )
 
   normalized = await preferences.coordinator.normalize_item(item.name)
   preference_session = preferences.coordinator.create_session(normalized)
@@ -350,21 +392,33 @@ async def _process_item(
       existing_preference=existing_preference,
       specific_request=specific_request,
       auth_manager=auth_manager,
+      state=state,
+      agent_label=agent_label,
     )
   except Exception as exc:  # noqa: BLE001
-    await _handle_processing_exception(item, exc, provider)
+    await _handle_processing_exception(
+      item,
+      exc,
+      provider,
+      agent_label=agent_label,
+    )
     return FailedOutcome(error=str(exc))
 
 
 async def _handle_processing_exception(
-  item: ShoppingListItem, exc: Exception, provider: ShoppingListProvider
+  item: ShoppingListItem,
+  exc: Exception,
+  provider: ShoppingListProvider,
+  *,
+  agent_label: str | None = None,
 ) -> None:
   import sys
   import traceback
 
   tb = traceback.format_exc()
-  termcolor.cprint("Exception while shopping item:", color="red")
-  print(tb, file=sys.stderr)
+  prefix = f"[{agent_label}] " if agent_label else ""
+  termcolor.cprint(f"{prefix}Exception while shopping item:", color="red")
+  print(f"{prefix}{tb}", file=sys.stderr)
   provider.mark_failed(item.id, f"exception: {exc}\n{tb}")
 
 
@@ -438,8 +492,13 @@ async def _shop_single_item_in_tab(
   existing_preference: PreferenceRecord | None = None,
   specific_request: bool = False,
   auth_manager: AuthManager,
+  state: OrchestrationState,
+  agent_label: str,
 ) -> Outcome:
-  termcolor.cprint(f"🛒 (tab) Shopping for: {item.name}", color="cyan")
+  termcolor.cprint(
+    f"[{agent_label}] 🛒 Shopping for '{item.name}'.",
+    color="cyan",
+  )
   normalized = preference_session.normalized
   prompt = _build_task_prompt(
     item.name,
@@ -447,12 +506,17 @@ async def _shop_single_item_in_tab(
     existing_preference,
     specific_request,
   )
+  termcolor.cprint(
+    f"[{agent_label}] Computer-use prompt:\n{textwrap.indent(prompt, '  ')}",
+    color="white",
+  )
   max_attempts = 2
   for attempt in range(1, max_attempts + 1):
     needs_retry = False
     tab = await host.new_tab()
     termcolor.cprint(
-      f"[agent] Launching browser agent for '{item.name}' (attempt {attempt}/{max_attempts}).",
+      f"[{agent_label}] Launching browser agent "
+      f"(attempt {attempt}/{max_attempts}) for '{item.name}'.",
       color="blue",
     )
     agent: BrowserAgent | None = None
@@ -470,7 +534,8 @@ async def _shop_single_item_in_tab(
         query=prompt,
         model_name=model_name,
         logger=logger,
-        output_label=item.name,
+        output_label=f"{agent_label} | {item.name}",
+        agent_label=agent_label,
         custom_tools=[
           session.report_item_added,
           session.report_item_not_found,
@@ -482,12 +547,15 @@ async def _shop_single_item_in_tab(
         turns += 1
         if turns > max_turns:
           shopping_list_provider.mark_failed(item.id, f"max_turns_exceeded: {max_turns}")
-          termcolor.cprint("Max turns exceeded; marking failed.", color="yellow")
+          termcolor.cprint(f"[{agent_label}] Max turns exceeded; marking failed.", color="yellow")
           return FailedOutcome(error=f"max_turns_exceeded: {max_turns}")
 
         if time.monotonic() - start > budget_seconds:
           shopping_list_provider.mark_failed(item.id, f"time_budget_exceeded: {time_budget}")
-          termcolor.cprint("Time budget exceeded; marking failed.", color="yellow")
+          termcolor.cprint(
+            f"[{agent_label}] Time budget exceeded; marking failed.",
+            color="yellow",
+          )
           return FailedOutcome(error=f"time_budget_exceeded: {time_budget}")
 
         try:
@@ -496,7 +564,7 @@ async def _shop_single_item_in_tab(
         except AuthExpiredError:
           needs_retry = True
           termcolor.cprint(
-            f"Authentication expired during attempt {attempt}; scheduling re-auth.",
+            f"[{agent_label}] Authentication expired during attempt {attempt}; scheduling re-auth.",
             color="yellow",
           )
           break
@@ -528,15 +596,15 @@ async def _shop_single_item_in_tab(
         agent.close()
     if needs_retry:
       termcolor.cprint(
-        "Authentication refreshed; retrying item from the beginning.",
+        f"[{agent_label}] Authentication refreshed; retrying item from the beginning.",
         color="yellow",
       )
       try:
-        await auth_manager.ensure_authenticated()
+        await state.ensure_pre_shop_auth(auth_manager)
       except Exception as auth_exc:  # noqa: BLE001
         shopping_list_provider.mark_failed(item.id, f"auth_recovery_failed: {auth_exc}")
         termcolor.cprint(
-          f"Authentication recovery failed ({auth_exc}); giving up on item.",
+          f"[{agent_label}] Authentication recovery failed ({auth_exc}); giving up on item.",
           color="red",
         )
         return FailedOutcome(error=f"auth_recovery_failed: {auth_exc}")
@@ -544,7 +612,7 @@ async def _shop_single_item_in_tab(
 
   shopping_list_provider.mark_failed(item.id, "auth_recovery_failed")
   termcolor.cprint(
-    "Authentication recovery exhausted; marking item as failed.",
+    f"[{agent_label}] Authentication recovery exhausted; marking item as failed.",
     color="red",
   )
   return FailedOutcome(error="auth_recovery_failed")

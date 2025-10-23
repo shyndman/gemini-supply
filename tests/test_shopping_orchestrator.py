@@ -4,7 +4,6 @@ from dataclasses import dataclass
 
 import pytest
 
-from gemini_supply.orchestrator import OrchestrationStage, OrchestrationState
 from gemini_supply.config import ConcurrencyConfig
 from gemini_supply.grocery import (
   ItemAddedResult,
@@ -13,6 +12,7 @@ from gemini_supply.grocery import (
   ShoppingListItem,
   ShoppingSummary,
 )
+from gemini_supply.orchestrator import OrchestrationStage, OrchestrationState
 
 
 def _items(count: int) -> list[ShoppingListItem]:
@@ -90,16 +90,4 @@ async def test_orchestration_state_runs_auth_once() -> None:
   await state.ensure_pre_shop_auth(auth_manager)
 
   assert auth_manager.calls == [False]
-  assert state.stage is OrchestrationStage.SHOPPING
-
-
-@pytest.mark.asyncio
-async def test_orchestration_state_force_runs_even_when_shopping() -> None:
-  state = OrchestrationState()
-  auth_manager = StubAuthManager()
-
-  await state.ensure_pre_shop_auth(auth_manager)
-  await state.ensure_pre_shop_auth(auth_manager, force=True)
-
-  assert auth_manager.calls == [False, True]
   assert state.stage is OrchestrationStage.SHOPPING

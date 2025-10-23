@@ -4,6 +4,7 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from pprint import pformat
 from types import TracebackType
 from typing import (
   TYPE_CHECKING,
@@ -125,7 +126,6 @@ class CamoufoxHost:
     enforce_restrictions: bool = True,
     executable_path: Path | None = None,
     headless: bool | Literal["virtual"] | None = None,
-    disable_sandbox: bool | None = None,
     camoufox_options: CamoufoxLaunchOptions | None = None,
   ) -> None:
     self._initial_url = initial_url
@@ -137,11 +137,6 @@ class CamoufoxHost:
     self._headless: bool | Literal["virtual"] | None = headless
 
     self._screen_size = screen_size
-
-    env_disable = os.environ.get("CAMOUFOX_DISABLE_SANDBOX", "").strip().lower()
-    self._disable_sandbox = (
-      disable_sandbox if disable_sandbox is not None else env_disable in ("1", "true", "yes", "on")
-    )
 
     # Runtime-managed Playwright objects
     self._playwright: playwright.async_api.Playwright | None = None
@@ -199,30 +194,66 @@ class CamoufoxHost:
       raise RuntimeError("Camoufox host is not running.")
     return ctx
 
+  def _resolve_headless_mode(self) -> bool | Literal["virtual"]:
+    """Resolve headless mode from explicit config or PLAYWRIGHT_HEADLESS env var."""
+    if self._headless is not None:
+      return self._headless
+
+    env_val = os.environ.get("PLAYWRIGHT_HEADLESS", "").strip().lower()
+    if env_val in ("virtual", "v"):
+      return "virtual"
+    elif env_val in ("0", "false", "no"):
+      return False
+    else:
+      return True
+
+  async def _prepare_launch_options(self, *, headless: bool | Literal["virtual"]) -> dict[str, Any]:
+    """Build Camoufox launch options dict before browser launch."""
+    loop = asyncio.get_running_loop()
+    launch_kwargs = cast(dict[str, Any], self._camoufox_options.copy())
+    if "config" in launch_kwargs and isinstance(launch_kwargs["config"], dict):
+      launch_kwargs["config"] = launch_kwargs["config"].copy()
+    launch_kwargs.pop("headless", None)
+
+    exe_path = str(self._executable_path) if self._executable_path else None
+    camoufox_headless = headless if isinstance(headless, bool) else False
+    options = await loop.run_in_executor(
+      None,
+      lambda: camoufox_launch_options(
+        executable_path=exe_path,
+        headless=camoufox_headless,
+        **launch_kwargs,
+      ),
+    )
+    termcolor.cprint(f"Camoufox executable: {exe_path or '<default>'}", color="yellow")
+
+    options["user_data_dir"] = str(self._user_data_dir)
+    options.setdefault(
+      "viewport",
+      {"width": self._screen_size.width, "height": self._screen_size.height},
+    )
+
+    return options
+
+  async def _initialize_context(self, context: playwright.async_api.BrowserContext) -> None:
+    """Set up banner script and route restrictions on the browser context."""
+    await context.add_init_script(self._banner_script())
+    if self._enforce_restrictions:
+      await context.route("**/*", self._route_interceptor)
+      self._restrictions_active = True
+    else:
+      self._restrictions_active = False
+
   async def __aenter__(self) -> "CamoufoxHost":
     termcolor.cprint("Creating Camoufox host (persistent context)...", color="cyan")
     self._playwright = await async_playwright().start()
     assert self._playwright is not None
 
     try:
-      # Headless: prefer explicit flag, else env var PLAYWRIGHT_HEADLESS
-      env_val = os.environ.get("PLAYWRIGHT_HEADLESS", "").strip().lower()
-      if self._headless is None:
-        if env_val in ("virtual", "v"):
-          headless: bool | Literal["virtual"] = "virtual"
-        elif env_val in ("0", "false", "no"):
-          headless = False
-        elif env_val:
-          headless = True
-        else:
-          headless = "virtual"
-      else:
-        headless = self._headless
-
+      headless = self._resolve_headless_mode()
       termcolor.cprint("Launching with Camoufox options (persistent context)...", color="cyan")
       context = await self._launch_with_camoufox_options(headless=headless)
       self._context = context
-      # Browser may be None for persistent contexts; rely on context.
       self._browser = context.browser
     except Exception as e:  # noqa: BLE001
       raise RuntimeError(
@@ -230,56 +261,19 @@ class CamoufoxHost:
       ) from e
 
     assert self._context is not None
-    c = self._context
-    await c.add_init_script(self._banner_script())
-    if self._enforce_restrictions:
-      await c.route("**/*", self._route_interceptor)
-      self._restrictions_active = True
-    else:
-      self._restrictions_active = False
-
+    await self._initialize_context(self._context)
     termcolor.cprint("Camoufox host ready.", color="green")
     return self
 
   async def _launch_with_camoufox_options(
     self, *, headless: bool | Literal["virtual"]
   ) -> playwright.async_api.BrowserContext:
+    """Launch Camoufox browser with configured options."""
     assert self._playwright is not None
-    assert self._camoufox_options is not None
-    loop = asyncio.get_running_loop()
-    launch_kwargs = cast(dict[str, Any], self._camoufox_options.copy())
-    if "config" in launch_kwargs and isinstance(launch_kwargs["config"], dict):
-      launch_kwargs["config"] = launch_kwargs["config"].copy()
-    exe_path = str(self._executable_path) if self._executable_path else None
-    options = await loop.run_in_executor(
-      None,
-      lambda: camoufox_launch_options(
-        executable_path=exe_path,
-        **launch_kwargs,
-      ),
-    )
-    termcolor.cprint(f"Camoufox executable: {exe_path or '<default>'}", color="yellow")
-    options["user_data_dir"] = str(self._user_data_dir)
-    options.setdefault(
-      "viewport",
-      {"width": self._screen_size.width, "height": self._screen_size.height},
-    )
-    if self._disable_sandbox:
-      runtime_dir = self._user_data_dir / ".runtime"
-      runtime_dir.mkdir(parents=True, exist_ok=True)
-      args = list(options.get("args") or [])
-      args.extend(["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"])
-      options["args"] = args
-      env = dict(options.get("env") or {})
-      env.update(
-        {
-          "MOZ_DISABLE_CONTENT_SANDBOX": "1",
-          "MOZ_DISABLE_GMP_SANDBOX": "1",
-          "MOZ_DISABLE_RDD_SANDBOX": "1",
-          "XDG_RUNTIME_DIR": str(runtime_dir),
-        }
-      )
-      options["env"] = env
+    options = await self._prepare_launch_options(headless=headless)
+    termcolor.cprint("Camoufox launch configuration:", color="yellow")
+    termcolor.cprint(pformat(options, sort_dicts=False), color="yellow")
+
     context = await _async_camoufox_new_browser(
       self._playwright,
       from_options=options,

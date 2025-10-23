@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from functools import cached_property
 
 from pydantic import BaseModel, Field
@@ -8,6 +7,7 @@ from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.ollama import OllamaProvider
 
+from ..utils.strings import slugify
 from .constants import DEFAULT_NORMALIZER_MODEL
 from .types import NormalizedItem
 
@@ -77,7 +77,7 @@ class NormalizationAgent:
         continue
       qualifiers.append(trimmed)
     return NormalizedItem(
-      canonical_key=_slugify(category),
+      canonical_key=slugify(category),
       category_label=category,
       original_text=item_text.strip(),
       quantity=int(data.quantity),
@@ -87,8 +87,8 @@ class NormalizationAgent:
 
   @cached_property
   def _agent(self) -> Agent[None, _NormalizationModel]:
-    base_url = self._base_url or os.environ.get("OLLAMA_BASE_URL")
-    provider_api_key = self._api_key or os.environ.get("OLLAMA_API_KEY")
+    base_url = self._base_url
+    provider_api_key = self._api_key
     provider = OllamaProvider(base_url=base_url, api_key=provider_api_key)
     model = OpenAIChatModel(model_name=self._model_name, provider=provider)
     return Agent(
@@ -96,19 +96,3 @@ class NormalizationAgent:
       output_type=_NormalizationModel,
       system_prompt=SYSTEM_PROMPT,
     )
-
-
-def _slugify(value: str) -> str:
-  lowered = value.lower()
-  chars: list[str] = []
-  prev_hyphen = False
-  for ch in lowered:
-    if ch.isalnum():
-      chars.append(ch)
-      prev_hyphen = False
-    else:
-      if not prev_hyphen:
-        chars.append("-")
-        prev_hyphen = True
-  slug = "".join(chars).strip("-")
-  return slug or "item"
