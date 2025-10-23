@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import textwrap
 import time
 from dataclasses import dataclass
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Literal, Mapping, Protocol, Sequence
+from typing import Mapping, Protocol, Sequence
 
 import termcolor
 
@@ -194,24 +193,6 @@ async def _run_shopping_flow(
   effective_concurrency = settings.concurrency.resolve(len(items))
   termcolor.cprint(f"Resolved concurrency: {effective_concurrency}", color="cyan")
 
-  env_h = os.environ.get("PLAYWRIGHT_HEADLESS", "").strip().lower()
-  if env_h in ("virtual", "v"):
-    headless_mode: bool | Literal["virtual"] = "virtual"
-  elif env_h in ("0", "false", "no"):
-    headless_mode = False
-  elif env_h:
-    headless_mode = True
-  else:
-    headless_mode = "virtual"
-
-  if headless_mode == "virtual":
-    headless_label = "virtual"
-  elif headless_mode is False:
-    headless_label = "headed"
-  else:
-    headless_label = "headless"
-  termcolor.cprint(f"Resolved headless mode: {headless_label}", color="cyan")
-
   agent_labels = {item.id: f"agent-{idx + 1}" for idx, item in enumerate(items)}
   termcolor.cprint(
     f"[stage] Initialized orchestration state with {len(agent_labels)} agents.",
@@ -225,7 +206,6 @@ async def _run_shopping_flow(
     highlight_mouse=True,
     enforce_restrictions=True,
     executable_path=camoufox_exec,
-    headless=headless_mode,
     camoufox_options=build_camoufox_options(),
   ) as host:
     auth_manager = AuthManager(host)

@@ -125,7 +125,6 @@ class CamoufoxHost:
     highlight_mouse: bool = False,
     enforce_restrictions: bool = True,
     executable_path: Path | None = None,
-    headless: bool | Literal["virtual"] | None = None,
     camoufox_options: CamoufoxLaunchOptions | None = None,
   ) -> None:
     self._initial_url = initial_url
@@ -134,7 +133,6 @@ class CamoufoxHost:
     self._enforce_restrictions = enforce_restrictions
     self._executable_path = executable_path
     self._user_data_dir = user_data_dir
-    self._headless: bool | Literal["virtual"] | None = headless
 
     self._screen_size = screen_size
 
@@ -195,10 +193,7 @@ class CamoufoxHost:
     return ctx
 
   def _resolve_headless_mode(self) -> bool | Literal["virtual"]:
-    """Resolve headless mode from explicit config or PLAYWRIGHT_HEADLESS env var."""
-    if self._headless is not None:
-      return self._headless
-
+    """Resolve headless mode from PLAYWRIGHT_HEADLESS env var."""
     env_val = os.environ.get("PLAYWRIGHT_HEADLESS", "").strip().lower()
     if env_val in ("virtual", "v"):
       return "virtual"
