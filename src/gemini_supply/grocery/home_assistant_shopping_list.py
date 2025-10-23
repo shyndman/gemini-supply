@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import cast
 
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
@@ -12,31 +11,53 @@ from gemini_supply.grocery.types import (
 )
 
 
-class HomeAssistantItemModel(BaseModel):
+class _HomeAssistantItemModel(BaseModel):
   model_config = ConfigDict(extra="allow", validate_assignment=True)
 
-  id: str = ""
-  name: str = ""
-  complete: bool = False
+  uid: str = ""
+  summary: str = ""
+  status: str = "needs_action"
 
-  @field_validator("id", mode="before")
+  @field_validator("uid", mode="before")
   @classmethod
-  def _coerce_id(cls, value: object) -> str:
+  def _coerce_uid(cls, value: object) -> str:
     if value is None:
       return ""
     return str(value)
 
-  @field_validator("name", mode="before")
+  @field_validator("summary", mode="before")
   @classmethod
-  def _coerce_name(cls, value: object) -> str:
+  def _coerce_summary(cls, value: object) -> str:
     if value is None:
       return ""
     return str(value)
 
-  @field_validator("complete", mode="before")
+  @field_validator("status", mode="before")
   @classmethod
-  def _coerce_complete(cls, value: object) -> bool:
-    return bool(value)
+  def _coerce_status(cls, value: object) -> str:
+    if value is None:
+      return "needs_action"
+    s = str(value)
+    # Normalize to standard values
+    if s.lower() in ("completed", "complete", "true"):
+      return "completed"
+    return "needs_action"
+
+
+class _TodoGetItemsResponse(BaseModel):
+  """Response structure from todo.get_items service call."""
+
+  model_config = ConfigDict(extra="allow")
+
+  service_response: dict[str, "_EntityItemsData"]
+
+
+class _EntityItemsData(BaseModel):
+  """Data for a specific entity's items."""
+
+  model_config = ConfigDict(extra="allow")
+
+  items: list[_HomeAssistantItemModel] = []
 
 
 # --- Home Assistant provider ---
@@ -47,6 +68,7 @@ class HomeAssistantShoppingListProvider:
   ha_url: str
   token: str
   no_retry: bool = False
+  entity_id: str = "todo.shopping_list"
 
   # Accumulators for summary sections this provider controls
   _duplicates: list[str] = None  # type: ignore[assignment]
@@ -64,9 +86,9 @@ class HomeAssistantShoppingListProvider:
     ret: list[ShoppingListItem] = []
     seen: set[str] = set()
     for it in items:
-      if it.complete:
+      if it.status == "completed":
         continue
-      raw_name = it.name.strip()
+      raw_name = it.summary.strip()
       if not raw_name:
         continue
       # Skip retriable items if requested
@@ -76,31 +98,31 @@ class HomeAssistantShoppingListProvider:
       norm = base.strip().lower()
       if norm in seen:
         # Tag as duplicate and skip processing
-        self._tag_dupe(it.id, raw_name)
+        self._tag_dupe(it.uid, raw_name)
         continue
       seen.add(norm)
-      if not it.id:
+      if not it.uid:
         continue
-      ret.append(ShoppingListItem(id=it.id, name=base, status=ItemStatus.NEEDS_ACTION))
+      ret.append(ShoppingListItem(id=it.uid, name=base, status=ItemStatus.NEEDS_ACTION))
     return ret
 
   def mark_completed(self, item_id: str, result: ItemAddedResult) -> None:
     # Strip error tags, keep quantity text if present in name (result has canonical item_name)
     current = self._get_item_name(item_id)
     base = self._strip_tags(current)
-    self._update_item(item_id, {"name": base, "complete": True})
+    self._update_item(item_id, {"name": base, "status": "completed"})
 
   def mark_not_found(self, item_id: str, result: ItemNotFoundResult) -> None:
     current = self._get_item_name(item_id)
     base = self._strip_tags(current)
     name = self._apply_tags(base, {"#not_found"})
-    self._update_item(item_id, {"name": name, "complete": False})
+    self._update_item(item_id, {"name": name, "status": "needs_action"})
 
   def mark_out_of_stock(self, item_id: str) -> None:
     current = self._get_item_name(item_id)
     base = self._strip_tags(current)
     name = self._apply_tags(base, {"#out_of_stock"})
-    self._update_item(item_id, {"name": name, "complete": False})
+    self._update_item(item_id, {"name": name, "status": "needs_action"})
     self._out_of_stock.append(base)
 
   def mark_failed(self, item_id: str, error: str) -> None:
@@ -111,7 +133,7 @@ class HomeAssistantShoppingListProvider:
       # Already has another error tag; do not apply failed
       return
     name = self._apply_tags(base, {"#failed"})
-    self._update_item(item_id, {"name": name, "complete": False})
+    self._update_item(item_id, {"name": name, "status": "needs_action"})
 
   def send_summary(self, summary: ShoppingSummary) -> None:
     # Convert to markdown and send persistent notification
@@ -142,48 +164,53 @@ class HomeAssistantShoppingListProvider:
       "Content-Type": "application/json",
     }
 
-  def _get_items(self) -> list[HomeAssistantItemModel]:
+  def _get_items(self) -> list[_HomeAssistantItemModel]:
     import json
     import urllib.request
     from urllib.error import HTTPError, URLError
 
-    url = f"{self.ha_url}/api/shopping_list"
-    req = urllib.request.Request(url, headers=self._headers(), method="GET")
+    url = f"{self.ha_url}/api/services/todo/get_items?return_response"
+    payload = {"entity_id": self.entity_id}
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=self._headers(), method="POST")
     try:
       with urllib.request.urlopen(req, timeout=5) as resp:  # type: ignore[reportUnknownMemberType]
         raw_data = json.loads(resp.read().decode("utf-8"))
-        if not isinstance(raw_data, list):
+        response = _TodoGetItemsResponse.model_validate(raw_data)
+        entity_data = response.service_response.get(self.entity_id)
+        if entity_data is None:
           return []
-        parsed: list[HomeAssistantItemModel] = []
-        for entry in cast(list[object], raw_data):
-          if not isinstance(entry, dict):
-            continue
-          try:
-            parsed.append(HomeAssistantItemModel.model_validate(cast(dict[str, object], entry)))
-          except ValidationError:
-            continue
-        return parsed
+        return entity_data.items
     except HTTPError as e:
       if e.code in (401, 403):
         raise RuntimeError(f"Home Assistant auth failed: HTTP {e.code}") from e
       return []
-    except URLError:
+    except (URLError, ValidationError):
       return []
 
   def _get_item_name(self, item_id: str) -> str:
     items = self._get_items()
     for it in items:
-      if it.id == item_id:
-        return it.name
+      if it.uid == item_id:
+        return it.summary
     return ""
 
-  def _update_item(self, item_id: str, fields: dict[str, object]) -> None:
+  def _update_item(self, item_uid: str, fields: dict[str, object]) -> None:
     import json
     import urllib.request
     from urllib.error import HTTPError
 
-    url = f"{self.ha_url}/api/shopping_list/item/{item_id}"
-    data = json.dumps(fields).encode("utf-8")
+    url = f"{self.ha_url}/api/services/todo/update_item"
+
+    # Map old fields to new service parameters
+    payload: dict[str, object] = {"entity_id": self.entity_id, "item": item_uid}
+
+    if "name" in fields:
+      payload["rename"] = fields["name"]
+    if "status" in fields:
+      payload["status"] = fields["status"]
+
+    data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers=self._headers(), method="POST")
     try:
       with urllib.request.urlopen(req, timeout=5):  # type: ignore[reportUnknownMemberType]
@@ -236,7 +263,7 @@ class HomeAssistantShoppingListProvider:
       return
     base = self._strip_tags(current_name)
     tagged = self._apply_tags(base, {"#dupe"})
-    self._update_item(item_id, {"name": tagged, "complete": False})
+    self._update_item(item_id, {"name": tagged, "status": "needs_action"})
     self._duplicates.append(base)
 
   def _parse_quantity(self, name: str) -> tuple[str, int]:

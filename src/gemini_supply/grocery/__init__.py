@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .home_assistant_shopping_list import HomeAssistantItemModel, HomeAssistantShoppingListProvider
+from .home_assistant_shopping_list import HomeAssistantShoppingListProvider
 from .shopping_list import (
   ShoppingListProvider,
   YAMLShoppingListDocumentModel,
@@ -26,5 +26,4 @@ __all__ = [
   "YAMLShoppingListItemModel",
   "YAMLShoppingListDocumentModel",
   "HomeAssistantShoppingListProvider",
-  "HomeAssistantItemModel",
 ]
