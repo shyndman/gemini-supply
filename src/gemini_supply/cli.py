@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import os
 from datetime import timedelta
 from pathlib import Path
 from typing import Callable, Sequence
@@ -9,11 +11,13 @@ from clypi import Command, arg
 from typing_extensions import override
 
 from gemini_supply.computers import ScreenSize
+from gemini_supply.computers.browser_host import CamoufoxHost, build_camoufox_options
 from gemini_supply.config import DEFAULT_CONFIG_PATH, ConcurrencyConfig, load_config
 from gemini_supply.models import ShoppingSettings
 from gemini_supply.orchestrator import run_shopping
+from gemini_supply.profile import resolve_camoufox_exec, resolve_profile_dir
 
-PLAYWRIGHT_SCREEN_SIZE = (1440, 900)
+PLAYWRIGHT_SCREEN_SIZE = (1000, 1000)
 
 
 def _concurrency_parser() -> Callable[[Sequence[str] | str], ConcurrencyConfig]:
@@ -71,10 +75,39 @@ class Shop(Command):
     )
 
 
+class Browse(Command):
+  """Open a headed browser using the Gemini Supply profile"""
+
+  initial_url: str = arg("https://www.metro.ca", help="Initial URL to open")
+
+  @override
+  async def run(self) -> None:
+    # Force headed mode
+    os.environ["PLAYWRIGHT_HEADLESS"] = "false"
+
+    profile_dir = resolve_profile_dir()
+    camoufox_exec = resolve_camoufox_exec()
+
+    async with CamoufoxHost(
+      screen_size=ScreenSize(*PLAYWRIGHT_SCREEN_SIZE),
+      user_data_dir=profile_dir,
+      initial_url=self.initial_url,
+      enforce_restrictions=False,
+      executable_path=camoufox_exec,
+      camoufox_options=build_camoufox_options(),
+    ) as host:
+      await host.new_page()
+      print(f"Browser opened at {self.initial_url}. Press Ctrl+C to exit.")
+      try:
+        await asyncio.sleep(float("inf"))
+      except asyncio.CancelledError:
+        pass
+
+
 class Cli(Command):
   """Gemini Supply CLI."""
 
-  subcommand: Shop
+  subcommand: Shop | Browse
 
 
 def run() -> int:
@@ -87,4 +120,4 @@ def run() -> int:
     return 130
 
 
-__all__ = ["run", "Cli", "Shop"]
+__all__ = ["run", "Cli", "Shop", "Browse"]
