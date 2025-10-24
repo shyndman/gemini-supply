@@ -12,7 +12,7 @@ from typing import Mapping, Protocol, Sequence
 import termcolor
 
 from gemini_supply.agent import BrowserAgent, LoopStatus
-from gemini_supply.auth import AuthManager
+from gemini_supply.auth.flow import AuthManager
 from gemini_supply.computers import AuthExpiredError, CamoufoxHost, build_camoufox_options
 from gemini_supply.config import (
   AppConfig,
@@ -352,6 +352,10 @@ async def _process_item(
   )
 
   normalized = await preferences.coordinator.normalize_item(item.name)
+  termcolor.cprint(
+    f"[{agent_label}] Normalized '{item.name}' -> {normalized}",
+    color="yellow",
+  )
   preference_session = preferences.coordinator.create_session(normalized)
   specific_request = _is_specific_request(normalized)
   if not specific_request:
@@ -440,7 +444,7 @@ def _build_task_prompt(
       """)
 
   # Case 2: No preference - search and decide
-  encoded_query = quote_plus(item_name)
+  encoded_query = quote_plus(item_name.replace(normalized.quantity_string or "", "").strip())
   search_url = f"https://www.metro.ca/en/online-grocery/search?filter={encoded_query}"
 
   return textwrap.dedent(f"""

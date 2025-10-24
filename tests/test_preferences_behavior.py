@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import cast
 
-from pydantic import HttpUrl
 import pytest
 
 from gemini_supply.grocery import (
@@ -20,9 +19,9 @@ from gemini_supply.preferences import (
   PreferenceItemSession,
   PreferenceRecord,
   PreferenceStore,
+  ProductChoice,
   ProductChoiceRequest,
   ProductDecision,
-  ProductChoice,
   TelegramPreferenceMessenger,
   TelegramSettings,
 )
@@ -62,12 +61,11 @@ def _normalized_item(
   brand: str | None = None, qualifiers: list[str] | None = None
 ) -> NormalizedItem:
   return NormalizedItem(
-    canonical_key="milk",
-    category_label="Milk",
-    original_text="Milk",
+    category="Milk",
     quantity=1,
     brand=brand,
     qualifiers=qualifiers or [],
+    original_text="Milk",
   )
 
 
@@ -92,7 +90,9 @@ async def test_record_success_persists_when_marked_default() -> None:
   await session.request_choice(
     [
       ProductChoice(
-        title="Option 1", price_text="$1.00", url=HttpUrl("https://example.com/option1")
+        title="Option 1",
+        price_text="$1.00",
+        # url=HttpUrl("https://example.com/option1"),
       )
     ]
   )
@@ -115,7 +115,9 @@ async def test_record_success_skips_without_default_toggle() -> None:
   await session.request_choice(
     [
       ProductChoice(
-        title="Option 1", price_text="$1.00", url=HttpUrl("https://example.com/option1")
+        title="Option 1",
+        price_text="$1.00",
+        # url=HttpUrl("https://example.com/option1"),
       )
     ]
   )
@@ -194,7 +196,7 @@ def test_format_option_block_outputs_markdown_lines() -> None:
   option = ProductChoice(
     title="2L Milk",
     price_text="$4.99",
-    url=HttpUrl("https://example.com/milk"),
+    # url=HttpUrl("https://example.com/milk"),
   )
   block = messenger._format_choice_block(1, option)
   assert block[0] == "1. *2L Milk*"
@@ -208,7 +210,11 @@ def test_format_acknowledgement_includes_price() -> None:
   messenger = TelegramPreferenceMessenger(settings=settings, nag_strings=[])
   ack = messenger._format_acknowledgement(
     "✅ Noted",
-    ProductChoice(title="2L Milk", price_text="$4.99", url=HttpUrl("https://example.com/milk")),
+    ProductChoice(
+      title="2L Milk",
+      price_text="$4.99",
+      # url=HttpUrl("https://example.com/milk"),
+    ),
   )
   assert ack.startswith("✅ Noted *2L Milk*")
   assert "$4\\.99" in ack

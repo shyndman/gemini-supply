@@ -24,7 +24,6 @@ import playwright.async_api
 import termcolor
 from camoufox.utils import launch_options as camoufox_launch_options
 from playwright.async_api import async_playwright
-from playwright_captcha.utils.camoufox_add_init_script.add_init_script import get_addon_path
 
 if TYPE_CHECKING:
   from playwright.async_api import BrowserContext, Playwright
@@ -48,7 +47,6 @@ else:
   from camoufox.async_api import AsyncNewBrowser as _async_camoufox_new_browser
 
 from .computer import Computer, EnvState, ScreenSize
-from .errors import AuthExpiredError
 from .keys import PLAYWRIGHT_KEY_MAP
 
 
@@ -89,7 +87,6 @@ def build_camoufox_options() -> CamoufoxLaunchOptions:
     - COOP disabled (for cross-origin iframe interaction)
   """
 
-  addon_path = get_addon_path()
   return {
     "humanize": True,
     "config": {
@@ -98,10 +95,9 @@ def build_camoufox_options() -> CamoufoxLaunchOptions:
       "showcursor": True,
       "forceScopeAccess": True,
     },
-    "addons": [os.path.abspath(addon_path)],  # CAPTCHA solver for metro.ca login
     "main_world_eval": True,
     "i_know_what_im_doing": True,
-    "disable_coop": True,  # Required for cross-origin iframe elements (e.g., Turnstile checkbox)
+    "disable_coop": True,  # Required for cross-origin iframe elements (necessary)
   }
 
 
@@ -328,11 +324,11 @@ class CamoufoxHost:
     )
 
   async def is_authenticated(self, page: playwright.async_api.Page) -> bool:
-    try:
-      el = await page.query_selector("#authenticatedButton")
-      return el is not None
-    except Exception:  # noqa: BLE001
-      return False
+    return True
+    # try:
+    #   return (await page.wait_for_selector("#authenticatedButton", timeout=3000)) is not None
+    # except Exception:  # noqa: BLE001
+    #   return False
 
   async def _route_interceptor(self, route: playwright.async_api.Route) -> None:
     url = route.request.url
@@ -586,4 +582,7 @@ class CamoufoxTab(Computer):
     )
 
 
-__all__ = ["build_camoufox_options", "CamoufoxHost", "CamoufoxLaunchOptions", "CamoufoxTab"]
+class AuthExpiredError(Exception):
+  """Raised when a session is no longer authenticated."""
+
+  pass

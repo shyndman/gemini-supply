@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 import requests
+import requests.exceptions
 
 from gemini_supply.config import AppConfig, HomeAssistantShoppingListConfig, load_config
 

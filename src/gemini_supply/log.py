@@ -10,7 +10,7 @@ from PIL import Image as PILImage
 from PIL.Image import Image as PILImageT
 from rich.console import Console
 from rich.table import Table
-from textual_image.renderable import ConsoleImage
+from textual_image.renderable import Image as ConsoleImage
 
 
 def setup_logging() -> None:

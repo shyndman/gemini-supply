@@ -2,12 +2,35 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, HttpUrl, computed_field, field_validator, model_validator
+from pydantic import (
+  AfterValidator,
+  BaseModel,
+  Field,
+  HttpUrl,
+  computed_field,
+  field_validator,
+  model_validator,
+)
 from pydantic.types import StringConstraints
 
 from gemini_supply.utils.currency import parse_price_cents
 
 type NonEmptyString = Annotated[str, StringConstraints(min_length=1, strip_whitespace=True)]
+
+
+def _strip_trailing_of(value: str) -> str:
+  if value.endswith(" of"):
+    value = value[:-3]
+  if not value:
+    raise ValueError("unit_descriptor must not be empty")
+  return value
+
+
+type UnitDescriptorString = Annotated[
+  str,
+  StringConstraints(min_length=1, strip_whitespace=True),
+  AfterValidator(_strip_trailing_of),
+]
 
 
 class PreferenceMetadata(BaseModel):
@@ -42,39 +65,38 @@ class PreferenceRecord(BaseModel):
   metadata: PreferenceMetadata = Field(default_factory=PreferenceMetadata)
 
 
-class NormalizedItem(BaseModel):
-  canonical_key: NonEmptyString
-  category_label: NonEmptyString
+class _PartialNormalizedItem(BaseModel):
+  quantity: int = Field(ge=1, description="The number of items requested.")
+  quantity_string: NonEmptyString | None = Field(
+    default=None,
+    description="The exact quantity expression as written (e.g., '1x', '10 X', 'x6', '4', 'two'). Null if no quantity expression is present.",
+  )
+  unit_descriptor: UnitDescriptorString | None = Field(
+    default=None,
+    description="Unit or container descriptor if present (e.g., 'box of', 'loaf of', 'can of', 'bunch of'). Null if not specified.",
+  )
+  brand: NonEmptyString | None = Field(default=None, description="The brand name if specified.")
+  category: NonEmptyString = Field(
+    min_length=1, description="The general product category or type."
+  )
+  qualifiers: list[NonEmptyString] = Field(
+    default_factory=list, description="Qualifiers removed from category."
+  )
+
+  def canonical_key(self) -> str:
+    """Generate a canonical key for this normalized item."""
+    return f"{self.category.strip().lower()}"
+
+
+class NormalizedItem(_PartialNormalizedItem):
   original_text: NonEmptyString
-  quantity: int = Field(default=1, ge=1)
-  brand: str | None = None
-  qualifiers: list[str] = Field(default_factory=list)
-
-  @field_validator("brand")
-  @classmethod
-  def _strip_optional(cls, value: str | None) -> str | None:
-    if value is None:
-      return None
-    trimmed = value.strip()
-    if not trimmed:
-      return None
-    return trimmed
-
-  @field_validator("qualifiers")
-  @classmethod
-  def _sanitize_qualifiers(cls, value: list[str]) -> list[str]:
-    cleaned: list[str] = []
-    for qualifier in value:
-      trimmed = qualifier.strip()
-      if trimmed:
-        cleaned.append(trimmed)
-    return cleaned
+  """The original item text as provided by the user."""
 
 
 class ProductChoice(BaseModel):
   title: NonEmptyString
   """The title of the product."""
-  url: HttpUrl
+  # url: HttpUrl
   """The URL of the product page."""
   price_text: NonEmptyString
   """The price of the product as a formatted string, e.g. "$12.34"."""

@@ -176,9 +176,9 @@ class TelegramPreferenceMessenger:
     price_display = self._choice_price_display(choice)
     if price_display is not None:
       block.append("   Price: `" + escape_markdown(price_display, version=2) + "`")
-    if choice.url:
-      safe_url = escape_markdown(f"{choice.url}", version=2)
-      block.append(f"   [View Product]({safe_url})")
+    # if choice.url:
+    #   safe_url = escape_markdown(f"{choice.url}", version=2)
+    #   block.append(f"   [View Product]({safe_url})")
     return block
 
   @staticmethod

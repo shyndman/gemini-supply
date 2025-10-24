@@ -9,7 +9,7 @@ from typing import Callable, Sequence
 import clypi.parsers as cp
 from clypi import Command, arg
 from typing_extensions import override
-
+from playwright.async_api import expect
 from gemini_supply.computers import ScreenSize
 from gemini_supply.computers.browser_host import CamoufoxHost, build_camoufox_options
 from gemini_supply.config import DEFAULT_CONFIG_PATH, ConcurrencyConfig, load_config
@@ -17,7 +17,7 @@ from gemini_supply.models import ShoppingSettings
 from gemini_supply.orchestrator import run_shopping
 from gemini_supply.profile import resolve_camoufox_exec, resolve_profile_dir
 
-PLAYWRIGHT_SCREEN_SIZE = (1000, 1000)
+PLAYWRIGHT_SCREEN_SIZE = (1024, 768)
 
 
 def _concurrency_parser() -> Callable[[Sequence[str] | str], ConcurrencyConfig]:
@@ -104,10 +104,46 @@ class Browse(Command):
         pass
 
 
+class ClearStorage(Command):
+  """Open a headed browser using the Gemini Supply profile"""
+
+  @override
+  async def run(self) -> None:
+    # Force headed mode
+    os.environ["PLAYWRIGHT_HEADLESS"] = "true"
+
+    profile_dir = resolve_profile_dir()
+    camoufox_exec = resolve_camoufox_exec()
+    initial_url = "https://www.whatismyip.com/"
+
+    async with CamoufoxHost(
+      screen_size=ScreenSize(*PLAYWRIGHT_SCREEN_SIZE),
+      user_data_dir=profile_dir,
+      initial_url=initial_url,
+      enforce_restrictions=False,
+      executable_path=camoufox_exec,
+      camoufox_options=build_camoufox_options(),
+    ) as host:
+      page = await host.new_page()
+      print(f"Browser opened at {initial_url}. Press Ctrl+C to exit.")
+      # Wait for IPv4 address to appear
+      isp_element = page.locator(".ip-address-isp")
+      # Wait for content to contain a valid IPv4 pattern
+      await expect(isp_element).to_have_text("ISP:Coextro", timeout=10000)
+
+      await host.context.clear_cookies(domain="auth.moiid.ca")
+      await host.context.clear_cookies(domain="www.metro.ca")
+      print("Cleared cookies for auth.moiid.ca and metro.ca")
+
+      await page.goto("https://www.metro.ca")
+      await page.evaluate("localStorage.clear()")
+      print("Cleared local storage for metro.ca")
+
+
 class Cli(Command):
   """Gemini Supply CLI."""
 
-  subcommand: Shop | Browse
+  subcommand: Shop | Browse | ClearStorage
 
 
 def run() -> int:

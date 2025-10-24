@@ -78,7 +78,7 @@ class PreferenceItemSession:
 
   async def existing_preference(self) -> PreferenceRecord | None:
     if self._cached_preference is _SENTINEL:
-      pref = await self._coordinator._get_preference(self._normalized.canonical_key)
+      pref = await self._coordinator._get_preference(self._normalized.canonical_key())
       if pref is not None:
         self._cached_preference = pref
         self._has_existing_preference = True
@@ -105,7 +105,7 @@ class PreferenceItemSession:
     self._prompt_invoked = True
     self._make_default_on_success = False
     request = ProductChoiceRequest(
-      category_label=self._normalized.category_label,
+      category_label=self._normalized.category,
       original_text=self._normalized.original_text,
       choices=choices,
     )
@@ -120,7 +120,7 @@ class PreferenceItemSession:
     make_default = self._make_default_on_success
     self._make_default_on_success = False
     metadata = PreferenceMetadata(
-      category_label=self._normalized.category_label,
+      category_label=self._normalized.category,
       brand=self._normalized.brand,
     )
     if make_default:
@@ -129,7 +129,7 @@ class PreferenceItemSession:
         product_url=HttpUrl(added.url),
         metadata=metadata,
       )
-      await self._coordinator.store.set(self._normalized.canonical_key, record)
+      await self._coordinator.store.set(self._normalized.canonical_key(), record)
       self._cached_preference = record
       self._has_existing_preference = True
 

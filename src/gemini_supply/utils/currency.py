@@ -6,7 +6,7 @@ import re
 def parse_price_cents(price_text: str) -> int:
   """Parse price in cents from formatted price text like '$12.34'.
 
-  Removes $, commas, and decimal point, then parses as integer cents.
+  Removes non numeric characters, then parses as integer cents.
 
   Args:
     price_text: Price string (e.g., "$12.34" or "12.34")
@@ -14,5 +14,5 @@ def parse_price_cents(price_text: str) -> int:
   Returns:
     Price in cents as an integer (e.g., 1234)
   """
-  cleaned = re.sub(r"[\$,.]", "", price_text)
+  cleaned = re.sub(r"\D", "", price_text)
   return int(cleaned)
