@@ -106,7 +106,7 @@ class ShoppingSession:
   result: ItemAddedResult | ItemNotFoundResult | None = None
 
   async def report_item_added(
-    self, item_name: str, price_text: str, url: str, quantity: int = 1
+    self, item_name: str, price_text: str, quantity: int = 1
   ) -> ItemAddedResult:
     """Report success adding an item to the cart.
 
@@ -122,7 +122,6 @@ class ShoppingSession:
     self.result = ItemAddedResult(
       item_name=item_name,
       price_text=price_text,
-      url=url,
       quantity=quantity,
     )
     self.provider.mark_completed(self.item.id, self.result)

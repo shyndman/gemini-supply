@@ -2,9 +2,10 @@ import asyncio
 from collections.abc import Callable
 from types import TracebackType
 from typing import Awaitable, Literal
-from .computer import Computer
+
 from playwright.async_api import Page
-from .computer import EnvState, ScreenSize
+
+from .computer import Computer, EnvState, ScreenSize
 from .keys import PLAYWRIGHT_KEY_MAP
 
 
@@ -91,18 +92,22 @@ class CamoufoxTab(Computer):
     await self._page.wait_for_load_state()
     return await self.current_state()
 
-  async def scroll_document(self, direction: Literal["up", "down", "left", "right"]) -> EnvState:
+  async def scroll_document(
+    self, direction: Literal["up", "down", "left", "right"], magnitude: int
+  ) -> EnvState:
+    x, y = 0, 0
+
     if direction == "down":
-      return await self.key_combination(["PageDown"])
+      y += magnitude
     elif direction == "up":
-      return await self.key_combination(["PageUp"])
-    else:  # elif direction in ("left", "right"):
-      # Horizontal scroll by 50% of viewport
-      horizontal_scroll_amount = self.screen_size().width // 2
-      sign = "-" if direction == "left" else ""
-      await self._page.evaluate(f"window.scrollBy({sign}{horizontal_scroll_amount}, 0);")
-      await self._page.wait_for_load_state()
-      return await self.current_state()
+      y -= magnitude
+    elif direction == "left":
+      x -= magnitude
+    elif direction == "right":
+      x += magnitude
+
+    await self._page.evaluate(f"window.scrollBy({x}, {y});")
+    return await self.current_state()
 
   async def scroll_at(
     self,

@@ -189,12 +189,13 @@ class BrowserAgent:
         )
 
       case "scroll_document":
-        return await self._browser_computer.scroll_document(action.args["direction"])
+        magnitude = action.args.get("magnitude", 300)
+        return await self._browser_computer.scroll_document(action.args["direction"], magnitude)
 
       case "scroll_at":
         x = self.denormalize_x(action.args["x"])
         y = self.denormalize_y(action.args["y"])
-        magnitude = action.args.get("magnitude", 800)
+        magnitude = action.args.get("magnitude", 300)
         direction = action.args["direction"]
 
         if direction in ("up", "down"):

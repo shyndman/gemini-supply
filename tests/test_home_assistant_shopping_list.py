@@ -183,9 +183,7 @@ class TestMarkCompleted:
       patch.object(provider, "_update_item") as mock_update,
     ):
       mock_get_name.return_value = "Milk #not_found"
-      result = ItemAddedResult(
-        item_name="Milk", quantity=1, price_text="$4.99", url="http://example.com"
-      )
+      result = ItemAddedResult(item_name="Milk", quantity=1, price_text="$4.99")
 
       provider.mark_completed("item-123", result)
 
@@ -198,9 +196,7 @@ class TestMarkCompleted:
       patch.object(provider, "_update_item") as mock_update,
     ):
       mock_get_name.return_value = "x3 Apples"
-      result = ItemAddedResult(
-        item_name="Apples", quantity=3, price_text="$2.99", url="http://example.com"
-      )
+      result = ItemAddedResult(item_name="Apples", quantity=3, price_text="$2.99")
 
       provider.mark_completed("item-123", result)
 
@@ -411,10 +407,8 @@ class TestSummaryFormatting:
     """Should list added items with quantities."""
     summary = ShoppingSummary(
       added_items=[
-        ItemAddedResult(
-          item_name="x3 Apples", quantity=3, price_text="$2.99", url="http://example.com"
-        ),
-        ItemAddedResult(item_name="Milk", quantity=1, price_text="$4.99", url="http://example.com"),
+        ItemAddedResult(item_name="x3 Apples", quantity=3, price_text="$2.99"),
+        ItemAddedResult(item_name="Milk", quantity=1, price_text="$4.99"),
       ],
       not_found_items=[],
       failed_items=[],
@@ -434,7 +428,7 @@ class TestSummaryFormatting:
     """Should annotate default and new default items."""
     summary = ShoppingSummary(
       added_items=[
-        ItemAddedResult(item_name="Milk", quantity=1, price_text="$4.99", url="http://example.com"),
+        ItemAddedResult(item_name="Milk", quantity=1, price_text="$4.99"),
       ],
       not_found_items=[],
       failed_items=[],
@@ -529,9 +523,7 @@ class TestSummaryFormatting:
     with patch.object(provider, "_notify_persistent"):
       summary = ShoppingSummary(
         added_items=[
-          ItemAddedResult(
-            item_name="Milk", quantity=1, price_text="$4.99", url="http://example.com"
-          ),
+          ItemAddedResult(item_name="Milk", quantity=1, price_text="$4.99"),
         ],
         not_found_items=[],
         failed_items=[],

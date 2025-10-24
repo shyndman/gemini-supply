@@ -75,7 +75,9 @@ class Computer(abc.ABC):
     """
 
   @abc.abstractmethod
-  async def scroll_document(self, direction: Literal["up", "down", "left", "right"]) -> EnvState:
+  async def scroll_document(
+    self, direction: Literal["up", "down", "left", "right"], magnitude: int
+  ) -> EnvState:
     """Scrolls the entire webpage "up", "down", "left" or "right" based on direction."""
 
   @abc.abstractmethod

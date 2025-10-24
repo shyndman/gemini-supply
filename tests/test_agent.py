@@ -31,7 +31,9 @@ class MockComputer(Computer):
   ) -> EnvState:
     return EnvState(screenshot=b"mock_screenshot", url="https://example.com")
 
-  async def scroll_document(self, direction: Literal["up", "down", "left", "right"]) -> EnvState:
+  async def scroll_document(
+    self, direction: Literal["up", "down", "left", "right"], magnitude: int
+  ) -> EnvState:
     return EnvState(screenshot=b"mock_screenshot", url="https://example.com")
 
   async def scroll_at(

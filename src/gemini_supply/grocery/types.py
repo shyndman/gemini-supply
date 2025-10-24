@@ -11,7 +11,6 @@ from gemini_supply.utils.currency import parse_price_cents
 class ItemAddedResult(BaseModel):
   item_name: str
   price_text: str
-  url: str
   quantity: int = 1
 
   def price_cents(self) -> int:

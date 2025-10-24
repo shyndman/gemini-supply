@@ -37,7 +37,6 @@ class PreferenceStore:
       )
       sanitized = PreferenceRecord(
         product_name=record.product_name,
-        product_url=record.product_url,
         metadata=metadata,
       )
       data[canonical_key] = sanitized

@@ -6,10 +6,10 @@ import re
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import AsyncIterator, Awaitable, Callable, Sequence, TypeAlias
+from typing import AsyncIterator, Awaitable, Callable, TypeAlias
 
 import termcolor
-from playwright.async_api import ElementHandle, Page, Position
+from playwright.async_api import Page, Position
 from playwright.async_api import TimeoutError as PlaywrightTimeout
 
 from gemini_supply.auth.short_fence import find_interactive_element_click_location
@@ -48,24 +48,6 @@ class AuthManager:
       await self._auth_flow(self._host)
       self._last_success = time.monotonic()
 
-  async def _session_is_valid(self) -> bool:
-    context_pages = list(self._host.context.pages)
-    pages = [page for page in context_pages if not _is_keepalive_page(page)]
-    if not pages:
-      page = await self._host.new_page()
-      try:
-        return await _check_session_via_promotions(self._host, page)
-      finally:
-        await _ensure_keepalive_tab(self._host, preserve=page)
-
-    for page in pages:
-      try:
-        if await self._host.is_authenticated(page):
-          return True
-      except Exception:
-        continue
-    return False
-
 
 async def _run_default_auth_flow(host: CamoufoxHost) -> None:
   async with _unrestricted_context(host):
@@ -97,13 +79,8 @@ async def _perform_login(host: CamoufoxHost) -> None:
 
     termcolor.cprint("[auth] Submitted credentials; waiting for redirect.", "cyan")
     await page.wait_for_load_state("networkidle")
-    final_page = await _wait_for_authenticated_page(host, host.context.pages)
-    termcolor.cprint(f"[auth] Authenticated via {final_page.url}", "green")
   finally:
-    try:
-      await _ensure_keepalive_tab(host, preserve=page)
-    except Exception:
-      pass
+    await _ensure_keepalive_tab(host, preserve=page)
 
 
 def _resolve_credentials() -> AuthCredentials:
@@ -114,25 +91,6 @@ def _resolve_credentials() -> AuthCredentials:
       "Set GEMINI_SUPPLY_METRO_USERNAME and GEMINI_SUPPLY_METRO_PASSWORD for automated auth."
     )
   return AuthCredentials(username=username, password=password)
-
-
-async def _check_session_via_promotions(host: CamoufoxHost, page: Page) -> bool:
-  try:
-    await page.wait_for_load_state("domcontentloaded")
-  except AttributeError:
-    return await host.is_authenticated(page)
-
-  try:
-    await _accept_cookies(page)
-    try:
-      await _open_promotions(page)
-    except PlaywrightTimeout:
-      termcolor.cprint("[auth] Promotions link unavailable during session check.", "yellow")
-    else:
-      await page.wait_for_load_state()
-  except AttributeError:
-    return await host.is_authenticated(page)
-  return await host.is_authenticated(page)
 
 
 async def _ensure_keepalive_tab(host: CamoufoxHost, *, preserve: Page) -> None:
@@ -172,14 +130,14 @@ def _page_is_closed(page: Page) -> bool:
 
 async def _accept_cookies(page: Page) -> None:
   try:
-    await _hover_and_click(page, "#onetrust-accept-btn-handler", timeout=4000)
+    await page.locator("#onetrust-accept-btn-handler").click()
     termcolor.cprint("[auth] Accepted cookies.", "magenta")
   except PlaywrightTimeout:
     termcolor.cprint("[auth] Cookie banner not present.", "yellow")
 
 
 async def _open_promotions(page: Page) -> None:
-  await _hover_and_click(page, 'a[href="/en/flyer"]')
+  await page.locator('a[href="/en/flyer"]').click()
   await page.wait_for_load_state()
 
 
@@ -188,15 +146,13 @@ AUTH_URL_PATTERN = re.compile("^https://auth.moiid.ca/")
 
 async def _launch_login_drawer(page: Page) -> None:
   termcolor.cprint("[auth] Opening login drawer.", "cyan")
-  await _hover_and_click(page, ".login--btn")
+  await page.locator(".login--btn").click()
   await page.wait_for_timeout(1000)
+
   termcolor.cprint("[auth] Triggering login action.", "cyan")
-  cta = await page.wait_for_selector(
-    "#loginSidePanelForm .cta-basic-primary", state="visible", timeout=5000
-  )
-  if cta is None:
-    raise AuthenticationError("Login button in side panel not found.")
-  await _click_center(page, cta)
+  login_btn = page.locator("#loginSidePanelForm .cta-basic-primary")
+  await login_btn.is_visible()
+  await login_btn.click()
 
   await page.wait_for_url(AUTH_URL_PATTERN)
 
@@ -225,72 +181,12 @@ async def _submit_credentials(page: Page, credentials: AuthCredentials) -> None:
   termcolor.cprint(f"[auth] Current page URL: {page.url}", "cyan")
 
   termcolor.cprint("[auth] Waiting for username field (#signInName).", "cyan")
-  user_input = await page.wait_for_selector("#signInName", timeout=15000)
-  if user_input is None:
-    raise AuthenticationError("Username field not present.")
-  termcolor.cprint("[auth] Username field found.", "green")
-  await _click_center(page, user_input)
-  await page.keyboard.type(credentials.username, delay=80)
+  await page.locator("#signInName").fill(credentials.username)
   termcolor.cprint("[auth] Username entered.", "green")
-  await page.keyboard.press("Tab")
 
   termcolor.cprint("[auth] Waiting for password field (#password).", "cyan")
-  password_input = await page.wait_for_selector("#password", timeout=5000)
-  if password_input is None:
-    raise AuthenticationError("Password field not present.")
-  termcolor.cprint("[auth] Password field found.", "green")
-  await _click_center(page, password_input)
-  await page.keyboard.type(credentials.password, delay=90)
+  await page.locator("#password").fill(credentials.password)
   termcolor.cprint("[auth] Password entered.", "green")
+
   await page.keyboard.press("Enter")
   termcolor.cprint("[auth] Submitted login form (pressed Enter).", "green")
-
-
-async def _wait_for_authenticated_page(host: CamoufoxHost, pages: Sequence[Page]) -> Page:
-  for _ in range(40):
-    for candidate in list(pages):
-      try:
-        if "metro.ca" in candidate.url and await host.is_authenticated(candidate):
-          return candidate
-      except Exception:
-        continue
-    await asyncio.sleep(0.5)
-  raise AuthenticationError("Authentication did not complete within the expected window.")
-
-
-async def _hover_and_click(page: Page, selector: str, *, timeout: float = 10000) -> None:
-  termcolor.cprint(f"[auth] Waiting for selector: {selector}", "cyan")
-  element = await page.wait_for_selector(selector, state="visible", timeout=timeout)
-  if element is None:
-    raise AuthenticationError(f"Element '{selector}' not found.")
-  try:
-    await element.wait_for_element_state("stable", timeout=timeout)
-  except Exception:
-    termcolor.cprint(f"[auth] Element not stable; continuing: {selector}", "yellow")
-  try:
-    await element.scroll_into_view_if_needed()
-  except Exception:
-    termcolor.cprint(f"[auth] scroll_into_view_if_needed failed; continuing: {selector}", "yellow")
-  await _click_center(page, element)
-
-
-async def _click_center(page: Page, element: ElementHandle) -> None:
-  box = await element.bounding_box()
-  if box is None:
-    raise AuthenticationError("Element missing bounding box.")
-  target_x = box["x"] + box["width"] / 2
-  target_y = box["y"] + box["height"] / 2
-  termcolor.cprint(
-    f"[auth] Clicking target at x={target_x:.1f}, y={target_y:.1f}",
-    "magenta",
-  )
-  await page.mouse.move(target_x, target_y)
-  await page.mouse.click(target_x, target_y)
-
-
-__all__ = [
-  "AuthCredentials",
-  "AuthManager",
-  "AuthenticationError",
-  "SHORT_FENCE_WAIT_MS",
-]

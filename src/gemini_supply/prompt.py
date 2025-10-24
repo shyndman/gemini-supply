@@ -9,29 +9,7 @@ def build_shopper_prompt(
   specific_request: bool,
 ) -> str:
   if preference is not None:
-    # Case 1: We have a known preference - go directly to it
-    return textwrap.dedent(f"""
-      Product to add:
-      - Quantity: {normalized.quantity}
-      - Product: {preference.product_name}
-      - URL: {preference.product_url}
-
-      Instructions:
-
-      1. Navigate directly to the product URL above.
-      2. On the product page, press 'Add to Cart'.
-         If the "Delivery or Pickup?" form appears, click the "I haven't made my choice yet" link at the bottom to defer selection, then press 'Add to Cart' again.
-      3. Verify success: The 'Add to Cart' button becomes a quantity control (with +/−).
-         If it does not change, try again or explain why it failed.
-      4. Call report_item_added(item_name, price_text, url, quantity) when successful.
-         The 'url' MUST be the product page URL.
-      5. If the product is unavailable or out of stock, call report_item_not_found(item_name, explanation).
-
-      Constraints:
-        - Stay on metro.ca and allowed resources only.
-        - Do NOT navigate to checkout, payment, or account pages.
-        - Focus solely on adding the requested item.
-      """)
+    item_name = f"{normalized.quantity}x {preference.product_name}"
 
   # Case 2: No preference - search and decide
   return textwrap.dedent(f"""
@@ -125,8 +103,12 @@ def build_shopper_prompt(
 
       - If you see a shopping cart icon button (🛒):
         * Click the 🛒 button
-        * 🚨VERY IMPORTANT🚨 If the "Delivery or Pickup?" form appears, click the "I haven't made my
-          choice yet" link at the bottom to defer selection, then click the 🛒 button again
+        * 🚨VERY IMPORTANT🚨 If the "Delivery or Pickup?" form appears:
+          1. Fill in the postal code: M4C1Y5
+          2. Press "Confirm"
+          3. Several delivery or pickup options will appear. Click the LAST option: "Choose Later"
+          4. The quantity controls will now be visible with a quantity of 1
+          5. Adjust to the desired quantity using the plus button if needed
         * Proceed to step 4
 
       - If you see quantity controls (trash icon, quantity number, plus button):
@@ -134,12 +116,15 @@ def build_shopper_prompt(
         * Adjust to the desired quantity using the plus button
         * Proceed to step 4
 
+      - If you realize you've added the WRONG item:
+        * Use the trash icon to remove the incorrect item
+        * Return to step 2 to find the correct product
+
     4. Verify success:
       ✓ Quantity controls (trash icon, quantity number, plus button) are visible
       ✓ The quantity shown matches the requested amount
 
       If either check fails:
-      - Take a screenshot
       - Look for error messages
       - Try clicking the 🛒 button ONE more time
       - If still failing, call report_item_not_found with specific error details
@@ -155,7 +140,6 @@ def build_shopper_prompt(
 
     Error Recovery:
     If at any point you become disoriented:
-    - Take a screenshot
     - Identify what page you're on (search results? something else?)
     - Check the URL bar to confirm location
     - If you need to return to search results: Don't use the back button (it's unreliable).
@@ -166,9 +150,14 @@ def build_shopper_prompt(
     If you notice you're seeing mostly irrelevant results, the search term may be too vague.
     Consider calling request_product_choice with explanation.
 
+    If you realize you've added the WRONG item to the cart:
+    - Use the trash icon to remove the incorrect item
+    - Then search for and add the correct item
+    - Only call report_item_added after the correct item is in the cart
+
     Constraints:
     - Stay on metro.ca and allowed resources only.
     - Do NOT navigate to checkout, payment, or account pages.
     - Focus solely on adding the requested item.
-    - REMEMBER to press the "I haven't made my choice yet" link when you see it
+    - REMEMBER the delivery/pickup flow: postal code M4C1Y5 → Confirm → Choose Later
     """)

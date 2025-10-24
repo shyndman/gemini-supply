@@ -134,7 +134,6 @@ class YAMLShoppingListProvider:
         raw.status = ItemStatus.COMPLETED
         raw.price_text = result.price_text
         raw.price_cents = result.price_cents()
-        raw.url = result.url
         raw.quantity = result.quantity
         break
     self._write(data)

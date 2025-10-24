@@ -6,7 +6,6 @@ from pydantic import (
   AfterValidator,
   BaseModel,
   Field,
-  HttpUrl,
   field_validator,
   model_validator,
 )
@@ -60,7 +59,6 @@ class PreferenceMetadata(BaseModel):
 
 class PreferenceRecord(BaseModel):
   product_name: NonEmptyString
-  product_url: HttpUrl
   metadata: PreferenceMetadata = Field(default_factory=PreferenceMetadata)
 
 

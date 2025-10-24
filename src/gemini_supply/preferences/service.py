@@ -9,7 +9,6 @@ from .messenger import TelegramPreferenceMessenger
 from .normalizer import NormalizationAgent
 from .store import PreferenceStore
 from .types import (
-  HttpUrl,
   NormalizedItem,
   PreferenceMetadata,
   PreferenceRecord,
@@ -126,7 +125,6 @@ class PreferenceItemSession:
     if make_default:
       record = PreferenceRecord(
         product_name=added.item_name,
-        product_url=HttpUrl(added.url),
         metadata=metadata,
       )
       await self._coordinator.store.set(self._normalized.canonical_key(), record)

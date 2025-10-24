@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
 import os
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from pprint import pformat
@@ -17,14 +17,15 @@ from typing import (
   cast,
 )
 from urllib.parse import urlparse
-from .computer import ScreenSize
+
 import playwright.async_api
 import termcolor
+from camoufox.async_api import AsyncNewBrowser  # type: ignore
 from camoufox.utils import launch_options as camoufox_launch_options
 from playwright.async_api import async_playwright
-from .browser_tab import CamoufoxTab
 
-from camoufox.async_api import AsyncNewBrowser  # type: ignore
+from .browser_tab import CamoufoxTab
+from .computer import ScreenSize
 
 
 class CamoufoxLaunchOptions(TypedDict):
@@ -305,11 +306,10 @@ class CamoufoxHost:
     )
 
   async def is_authenticated(self, page: playwright.async_api.Page) -> bool:
-    return True
-    # try:
-    #   return (await page.wait_for_selector("#authenticatedButton", timeout=3000)) is not None
-    # except Exception:  # noqa: BLE001
-    #   return False
+    try:
+      return (await page.wait_for_selector("#authenticatedButton", timeout=3000)) is not None
+    except Exception:  # noqa: BLE001
+      return False
 
   async def _route_interceptor(self, route: playwright.async_api.Route) -> None:
     url = route.request.url

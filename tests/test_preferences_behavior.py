@@ -73,7 +73,6 @@ def _added_result() -> ItemAddedResult:
   return ItemAddedResult(
     item_name="Lactantia 1% Milk",
     price_text="$5.49",
-    url="https://example.com/milk",
     quantity=1,
   )
 
@@ -145,7 +144,6 @@ def test_shopping_results_track_default_flags() -> None:
       result=ItemAddedResult(
         item_name="Irrelevant Butter",
         price_text="$4.00",
-        url="https://example.com/butter",
         quantity=1,
       ),
       used_default=False,
@@ -172,7 +170,6 @@ def test_home_assistant_summary_marks_default_notes() -> None:
       ItemAddedResult(
         item_name="Irrelevant Butter",
         price_text="$4.00",
-        url="https://example.com/butter",
         quantity=1,
       ),
     ],
