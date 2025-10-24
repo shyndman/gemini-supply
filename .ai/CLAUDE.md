@@ -48,13 +48,13 @@ uv run gemini-supply shop --shopping-list ~/.config/gemini-supply/shopping_list.
 ```bash
 uv run ruff check .
 uv run ruff format .
-uv run pyright
+ty check
 uv run pytest -n auto -q
 # If deps change, regenerate uv.lock
 uv pip compile pyproject.toml --upgrade
 ```
 
-- After completing a task or TODO list, always run `ruff format .`, `ruff check . --fix`, and `uv run pyright`, and resolve every reported issue before considering the work done.
+- After completing a task or TODO list, always run `ruff format .`, `ruff check . --fix`, and `ty check`, and resolve every reported issue before considering the work done.
 
 ### Coding Guidelines (Repo)
 

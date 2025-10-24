@@ -38,9 +38,9 @@ repos:
       - id: update-gitignore-for-symlinks
         args: [--hidden-dir=.ai, '--files=CLAUDE.md,AGENTS.md,.claude']
 
-#  - repo: local
-#    hooks:
-#      - id: ty
-#        name: ty check
-#        entry: uv run ty check
-#        language: python
+  - repo: local
+    hooks:
+      - id: ty
+        name: ty check
+        entry: uv run ty check
+        language: python
