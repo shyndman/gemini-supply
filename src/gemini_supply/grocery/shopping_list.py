@@ -133,7 +133,7 @@ class YAMLShoppingListProvider:
       if raw.resolved_id == item_id:
         raw.status = ItemStatus.COMPLETED
         raw.price_text = result.price_text
-        raw.price_cents = result.price_cents
+        raw.price_cents = result.price_cents()
         raw.url = result.url
         raw.quantity = result.quantity
         break

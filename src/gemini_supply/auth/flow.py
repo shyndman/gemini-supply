@@ -14,7 +14,7 @@ from playwright.async_api import TimeoutError as PlaywrightTimeout
 
 from gemini_supply.auth.short_fence import find_interactive_element_click_location
 from gemini_supply.computers import CamoufoxHost
-from gemini_supply.log import display_image_bytes_in_terminal
+from gemini_supply.term import display_image_bytes_in_terminal
 
 SHORT_FENCE_ATTEMPTS = 4
 SHORT_FENCE_WAIT_MS = 2000

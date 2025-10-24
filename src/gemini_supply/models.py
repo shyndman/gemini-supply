@@ -1,19 +1,17 @@
-import asyncio
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Literal
 
 from gemini_supply.computers import ScreenSize
 from gemini_supply.config import ConcurrencyConfig
+from gemini_supply.grocery import ShoppingListItem, ShoppingListProvider
 from gemini_supply.grocery.types import (
   ItemAddedResult,
   ItemNotFoundResult,
   ShoppingSummary,
 )
-from gemini_supply.preferences.types import ProductChoice, ProductDecision
-
-from gemini_supply.grocery import ShoppingListItem, ShoppingListProvider
 from gemini_supply.preferences import PreferenceItemSession
+from gemini_supply.preferences.types import ProductChoice, ProductDecision
 
 
 def _empty_added_results() -> list[ItemAddedResult]:
@@ -65,7 +63,7 @@ class ShoppingResults:
   def record(self, outcome: Outcome) -> None:
     if isinstance(outcome, AddedOutcome):
       self.added_items.append(outcome.result)
-      self.total_cost_cents += outcome.result.price_cents
+      self.total_cost_cents += outcome.result.price_cents()
       if outcome.used_default:
         self.default_filled_items.append(outcome.result.item_name)
       if outcome.starred_default:
@@ -107,7 +105,7 @@ class ShoppingSession:
   preference_session: PreferenceItemSession
   result: ItemAddedResult | ItemNotFoundResult | None = None
 
-  def report_item_added(
+  async def report_item_added(
     self, item_name: str, price_text: str, url: str, quantity: int = 1
   ) -> ItemAddedResult:
     """Report success adding an item to the cart.
@@ -128,7 +126,7 @@ class ShoppingSession:
       quantity=quantity,
     )
     self.provider.mark_completed(self.item.id, self.result)
-    asyncio.run(self.preference_session.record_success(self.result))
+    await self.preference_session.record_success(self.result)
     return self.result
 
   def report_item_not_found(self, item_name: str, explanation: str) -> ItemNotFoundResult:
@@ -145,7 +143,7 @@ class ShoppingSession:
     self.provider.mark_not_found(self.item.id, self.result)
     return self.result
 
-  def request_product_choice(self, choices: list[ProductChoice]) -> ProductDecision:
+  async def request_product_choice(self, choices: list[ProductChoice]) -> ProductDecision:
     """Request human input to choose a preferred product.
 
     Args:
@@ -154,7 +152,7 @@ class ShoppingSession:
     Returns:
       ProductDecision describing the user's choice (selected index, alternate text, or skip)
     """
-    decision = asyncio.run(self.preference_session.request_choice(choices))
+    decision = await self.preference_session.request_choice(choices)
 
     # Handle skip decision immediately without involving the agent further
     if decision.decision == "skip":

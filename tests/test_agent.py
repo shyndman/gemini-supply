@@ -14,6 +14,9 @@ class MockComputer(Computer):
   def screen_size(self) -> ScreenSize:
     return ScreenSize(1440, 900)
 
+  async def pre_action(self) -> None:
+    pass
+
   async def open_web_browser(self) -> EnvState:
     return EnvState(screenshot=b"mock_screenshot", url="https://example.com")
 

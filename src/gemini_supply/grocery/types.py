@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel
 
 from gemini_supply.utils.currency import parse_price_cents
 
@@ -14,8 +14,6 @@ class ItemAddedResult(BaseModel):
   url: str
   quantity: int = 1
 
-  @computed_field
-  @property
   def price_cents(self) -> int:
     """Computed price in cents from price_text."""
     return parse_price_cents(self.price_text)

@@ -1,53 +1,30 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from pprint import pformat
 from types import TracebackType
 from typing import (
-  TYPE_CHECKING,
   Any,
   AsyncIterator,
   Awaitable,
   Literal,
   NotRequired,
-  Protocol,
   TypedDict,
-  Unpack,
   cast,
 )
 from urllib.parse import urlparse
-
+from .computer import ScreenSize
 import playwright.async_api
 import termcolor
 from camoufox.utils import launch_options as camoufox_launch_options
 from playwright.async_api import async_playwright
+from .browser_tab import CamoufoxTab
 
-if TYPE_CHECKING:
-  from playwright.async_api import BrowserContext, Playwright
-
-  class _CamoufoxLaunchKwargs(TypedDict, total=False):
-    debug: bool | None
-
-  class _AsyncCamoufoxNewBrowserFn(Protocol):
-    def __call__(
-      self,
-      playwright: Playwright,
-      *,
-      from_options: dict[str, Any] | None = None,
-      persistent_context: Literal[True],
-      headless: bool | Literal["virtual"] | None = None,
-      **kwargs: Unpack[_CamoufoxLaunchKwargs],
-    ) -> Awaitable[BrowserContext]: ...
-
-  _async_camoufox_new_browser: _AsyncCamoufoxNewBrowserFn
-else:
-  from camoufox.async_api import AsyncNewBrowser as _async_camoufox_new_browser
-
-from .computer import Computer, EnvState, ScreenSize
-from .keys import PLAYWRIGHT_KEY_MAP
+from camoufox.async_api import AsyncNewBrowser  # type: ignore
 
 
 class CamoufoxLaunchOptions(TypedDict):
@@ -117,14 +94,16 @@ class CamoufoxHost:
     screen_size: ScreenSize,
     user_data_dir: Path,
     initial_url: str = "https://www.metro.ca",
-    search_engine_url: str = "https://www.metro.ca/en/online-grocery/search",
+    init_scripts: list[str] = [],
+    pre_iteration_delegate: Callable[[playwright.async_api.Page], Awaitable[None]] | None = None,
     highlight_mouse: bool = False,
     enforce_restrictions: bool = True,
     executable_path: Path | None = None,
     camoufox_options: CamoufoxLaunchOptions | None = None,
   ) -> None:
     self._initial_url = initial_url
-    self._search_engine_url = search_engine_url
+    self._init_scripts = init_scripts
+    self._pre_iteration_delegate = pre_iteration_delegate
     self._highlight_mouse = highlight_mouse
     self._enforce_restrictions = enforce_restrictions
     self._executable_path = executable_path
@@ -175,7 +154,7 @@ class CamoufoxHost:
 
   @property
   def search_engine_url(self) -> str:
-    return self._search_engine_url
+    raise NotImplementedError("CamoufoxHost does not implement search_engine_url property.")
 
   @property
   def highlight_mouse(self) -> bool:
@@ -228,7 +207,9 @@ class CamoufoxHost:
 
   async def _initialize_context(self, context: playwright.async_api.BrowserContext) -> None:
     """Set up banner script and route restrictions on the browser context."""
-    await context.add_init_script(self._banner_script())
+    for script in self._init_scripts:
+      await context.add_init_script(script)
+
     if self._enforce_restrictions:
       await context.route("**/*", self._route_interceptor)
       self._restrictions_active = True
@@ -265,7 +246,7 @@ class CamoufoxHost:
     termcolor.cprint("Camoufox launch configuration:", color="yellow")
     termcolor.cprint(pformat(options, sort_dicts=False), color="yellow")
 
-    context = await _async_camoufox_new_browser(
+    context = await AsyncNewBrowser(
       self._playwright,
       from_options=options,
       persistent_context=True,
@@ -313,13 +294,13 @@ class CamoufoxHost:
   async def new_page(self) -> playwright.async_api.Page:
     return await self._acquire_page()
 
-  async def new_tab(self) -> "CamoufoxTab":
+  async def new_tab(self) -> CamoufoxTab:
     page = await self._acquire_page()
     return CamoufoxTab(
       page=page,
       screen_size=self._screen_size,
-      search_engine_url=self._search_engine_url,
-      host=self,
+      is_authenticated_delegate=self.is_authenticated,
+      pre_iteration_delegate=self._pre_iteration_delegate,
       highlight_mouse=self._highlight_mouse,
     )
 
@@ -361,228 +342,3 @@ class CamoufoxHost:
         await context.route("**/*", self._route_interceptor)
       finally:
         self._restrictions_active = True
-
-  def _banner_script(self) -> str:
-    return (
-      "(() => {\n"
-      "  if (window.__groceryAgentInjected) return;\n"
-      "  window.__groceryAgentInjected = true;\n"
-      "  const id = 'grocery-agent-status-banner';\n"
-      "  const update = (text) => {\n"
-      "    let el = document.getElementById(id);\n"
-      "    if (!el) {\n"
-      "      el = document.createElement('div');\n"
-      "      el.id = id;\n"
-      "      el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;padding:6px 10px;background:linear-gradient(90deg,#3b82f6,#06b6d4);color:white;font:600 12px system-ui;letter-spacing:.3px;';\n"
-      "      document.body.prepend(el);\n"
-      "      document.body.style.paddingTop = '28px';\n"
-      "    }\n"
-      "    el.textContent = text;\n"
-      "  };\n"
-      "  window.setCurrentShoppingItem = (name) => { update(`🤖 Grocery Agent Active — ${name}`); };\n"
-      "})();"
-    )
-
-
-class CamoufoxTab(Computer):
-  """A tab-scoped Computer implementation backed by a single Page."""
-
-  def __init__(
-    self,
-    *,
-    page: playwright.async_api.Page,
-    screen_size: ScreenSize,
-    search_engine_url: str,
-    host: CamoufoxHost,
-    highlight_mouse: bool = False,
-  ) -> None:
-    self._page = page
-    self._screen_size = screen_size
-    self._search_engine_url = search_engine_url
-    self._host = host
-    self._highlight_mouse = highlight_mouse
-
-  async def __aenter__(self) -> "CamoufoxTab":
-    return self
-
-  async def __aexit__(
-    self,
-    exc_type: type[BaseException] | None,
-    exc_val: BaseException | None,
-    exc_tb: TracebackType | None,
-  ) -> None:
-    await self.close()
-
-  async def close(self) -> None:
-    try:
-      await self._page.close()
-    except Exception:
-      pass
-
-  # Computer methods
-  def screen_size(self) -> ScreenSize:
-    viewport = self._page.viewport_size
-    if viewport:
-      return ScreenSize(viewport["width"], viewport["height"])
-    return self._screen_size
-
-  async def open_web_browser(self) -> EnvState:
-    return await self.current_state()
-
-  async def click_at(self, x: int, y: int) -> EnvState:
-    await self.highlight_mouse(x, y)
-    await self._page.mouse.click(x, y)
-    await self._page.wait_for_load_state()
-    return await self.current_state()
-
-  async def hover_at(self, x: int, y: int) -> EnvState:
-    await self.highlight_mouse(x, y)
-    await self._page.mouse.move(x, y)
-    await self._page.wait_for_load_state()
-    return await self.current_state()
-
-  async def type_text_at(
-    self,
-    x: int,
-    y: int,
-    text: str,
-    press_enter: bool,
-    clear_before_typing: bool,
-  ) -> EnvState:
-    await self.highlight_mouse(x, y)
-    await self._page.mouse.click(x, y)
-    await self._page.wait_for_load_state()
-    if clear_before_typing:
-      # Cmd/Ctrl+A then Delete
-      import sys
-
-      if os.name == "posix" and sys.platform == "darwin":
-        await self.key_combination(["Command", "A"])
-      else:
-        await self.key_combination(["Control", "A"])
-      await self.key_combination(["Delete"])
-    await self._page.keyboard.type(text)
-    await self._page.wait_for_load_state()
-    if press_enter:
-      await self.key_combination(["Enter"])
-    await self._page.wait_for_load_state()
-    return await self.current_state()
-
-  async def scroll_document(self, direction: Literal["up", "down", "left", "right"]) -> EnvState:
-    if direction == "down":
-      return await self.key_combination(["PageDown"])
-    elif direction == "up":
-      return await self.key_combination(["PageUp"])
-    elif direction in ("left", "right"):
-      # Horizontal scroll by 50% of viewport
-      horizontal_scroll_amount = self.screen_size().width // 2
-      sign = "-" if direction == "left" else ""
-      await self._page.evaluate(f"window.scrollBy({sign}{horizontal_scroll_amount}, 0);")
-      await self._page.wait_for_load_state()
-      return await self.current_state()
-    else:
-      raise ValueError("Unsupported direction: ", direction)
-
-  async def scroll_at(
-    self,
-    x: int,
-    y: int,
-    direction: Literal["up", "down", "left", "right"],
-    magnitude: int,
-  ) -> EnvState:
-    await self.highlight_mouse(x, y)
-    await self._page.mouse.move(x, y)
-    await self._page.wait_for_load_state()
-    dx = 0
-    dy = 0
-    if direction == "up":
-      dy = -magnitude
-    elif direction == "down":
-      dy = magnitude
-    elif direction == "left":
-      dx = -magnitude
-    elif direction == "right":
-      dx = magnitude
-    else:
-      raise ValueError("Unsupported direction: ", direction)
-    await self._page.mouse.wheel(dx, dy)
-    await self._page.wait_for_load_state()
-    return await self.current_state()
-
-  async def wait_5_seconds(self) -> EnvState:
-    import asyncio
-
-    await asyncio.sleep(5)
-    return await self.current_state()
-
-  async def go_back(self) -> EnvState:
-    await self._page.go_back()
-    await self._page.wait_for_load_state()
-    return await self.current_state()
-
-  async def go_forward(self) -> EnvState:
-    await self._page.go_forward()
-    await self._page.wait_for_load_state()
-    return await self.current_state()
-
-  async def search(self) -> EnvState:
-    return await self.navigate(self._host.search_engine_url)
-
-  async def navigate(self, url: str) -> EnvState:
-    normalized_url = url
-    if not normalized_url.startswith(("http://", "https://")):
-      normalized_url = "https://" + normalized_url
-    await self._page.goto(normalized_url)
-    await self._page.wait_for_load_state()
-    return await self.current_state()
-
-  async def key_combination(self, keys: list[str]) -> EnvState:
-    for key in keys:
-      mapping = PLAYWRIGHT_KEY_MAP.get(key, key)
-      await self._page.keyboard.down(mapping)
-    for key in reversed(keys):
-      mapping = PLAYWRIGHT_KEY_MAP.get(key, key)
-      await self._page.keyboard.up(mapping)
-    await self._page.wait_for_load_state()
-    return await self.current_state()
-
-  async def drag_and_drop(self, x: int, y: int, destination_x: int, destination_y: int) -> EnvState:
-    await self.highlight_mouse(x, y)
-    await self._page.mouse.move(x, y)
-    await self._page.mouse.down()
-    await self.highlight_mouse(destination_x, destination_y)
-    await self._page.mouse.move(destination_x, destination_y)
-    await self._page.mouse.up()
-    await self._page.wait_for_load_state()
-    return await self.current_state()
-
-  async def current_state(self) -> EnvState:
-    await self._page.wait_for_load_state()
-    await asyncio.sleep(0.5)
-    if not await self._host.is_authenticated(self._page):
-      raise AuthExpiredError("Authentication expired or missing — login required")
-    screenshot_bytes = await self._page.screenshot(type="png", full_page=False)
-    return EnvState(url=self._page.url, screenshot=screenshot_bytes)
-
-  async def highlight_mouse(self, x: int, y: int) -> None:
-    if not self._highlight_mouse:
-      return
-    await self._page.evaluate(
-      """([mouseX, mouseY]) => {
-        let el = document.getElementById('__mouse-highlight');
-        if (!el) {
-          el = document.createElement('div');
-          el.id = '__mouse-highlight';
-          el.style.cssText = 'position:fixed;width:18px;height:18px;border-radius:9px;background:#f97316;opacity:0.9;pointer-events:none;z-index:2147483647;transform:translate(-9px,-9px);transition:transform 80ms ease-out;';
-          document.body.append(el);
-        }
-        el.style.transform = `translate(${mouseX}px, ${mouseY}px) translate(-9px, -9px)`;
-      }""",
-      [x, y],
-    )
-
-
-class AuthExpiredError(Exception):
-  """Raised when a session is no longer authenticated."""
-
-  pass

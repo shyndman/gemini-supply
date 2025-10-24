@@ -136,9 +136,9 @@ class TelegramPreferenceMessenger:
     lines.append(f"*{escape_markdown(request.category_label, version=2)}*")
     lines.append(f"_List entry:_ {escape_markdown(request.original_text, version=2)}")
     lines.append("")
-    lines.append("Reply with a number, tap a button, type a different product, or send `skip`.")
-    lines.append("Use a ⭐ button (or prefix like `⭐3`) to remember the choice as default.")
-    lines.append("Titles, prices, and links are shown for each option.")
+    lines.append("Reply with a number, tap a button, type a different product, or send `skip`\\.")
+    lines.append("Use a ⭐ button \\(or prefix like `⭐3`\\) to remember the choice as default\\.")
+    lines.append("Titles, prices, and links are shown for each option\\.")
     lines.append("")
     buttons: list[list[InlineKeyboardButton]] = []
     for idx, choice in enumerate(request.choices, start=1):
@@ -161,6 +161,7 @@ class TelegramPreferenceMessenger:
     keyboard = InlineKeyboardMarkup(buttons)
     if lines and lines[-1] == "":
       lines.pop()
+
     message: Message = await bot.send_message(
       chat_id=self._settings.chat_id,
       text="\n".join(lines),
@@ -172,10 +173,13 @@ class TelegramPreferenceMessenger:
 
   def _format_choice_block(self, idx: int, choice: ProductChoice) -> list[str]:
     title = escape_markdown(choice.title or f"Option {idx}", version=2)
-    block: list[str] = [f"{idx}. *{title}*"]
+    block: list[str] = [f"{idx}\\. *{title}*"]
     price_display = self._choice_price_display(choice)
     if price_display is not None:
-      block.append("   Price: `" + escape_markdown(price_display, version=2) + "`")
+      # Inside backticks (inline code), content is literal - don't escape special chars
+      # But we need to handle backticks in the content itself
+      safe_price = price_display.replace("`", "``")
+      block.append(f"   Price: `{safe_price}`")
     # if choice.url:
     #   safe_url = escape_markdown(f"{choice.url}", version=2)
     #   block.append(f"   [View Product]({safe_url})")
@@ -187,8 +191,8 @@ class TelegramPreferenceMessenger:
       trimmed = choice.price_text.strip()
       if trimmed:
         return trimmed
-    if choice.price_cents is not None and choice.price_cents >= 0:
-      return f"${choice.price_cents / 100:.2f}"
+    if choice.price_cents() is not None and choice.price_cents() >= 0:
+      return f"${choice.price_cents() / 100:.2f}"
     return None
 
   def _format_acknowledgement(self, status: str, choice: ProductChoice) -> str:
@@ -199,8 +203,10 @@ class TelegramPreferenceMessenger:
     escaped_title = escape_markdown(title, version=2)
     price_display = self._choice_price_display(choice)
     if price_display is not None:
-      escaped_price = escape_markdown(price_display, version=2)
-      return f"{status} *{escaped_title}* - `{escaped_price}`"
+      # Inside backticks (inline code), content is literal - don't escape special chars
+      # But we need to handle backticks in the content itself
+      safe_price = price_display.replace("`", "``")
+      return f"{status} *{escaped_title}* \\- `{safe_price}`"
     return f"{status} *{escaped_title}*"
 
   def _schedule_nag(self, request_id: int) -> str:
@@ -248,27 +254,32 @@ class TelegramPreferenceMessenger:
     query = update.callback_query
     if not query:
       return
-    await query.answer()
     pending = self._pending
     if pending is None:
       return
     msg = query.message
-    if msg is None or msg.chat is None or msg.chat.id != self._settings.chat_id:
+    if (
+      msg is None
+      or not isinstance(msg, Message)
+      or msg.chat is None
+      or msg.chat.id != self._settings.chat_id
+    ):
       return
     raw_data = (query.data or "").strip()
     lowered = raw_data.lower()
     if lowered == "skip":
+      await query.answer(text="✅")
       result = ProductDecision(
         decision="skip",
         selected_index=None,
         selected_choice=None,
         make_default=False,
       )
-      await self._resolve_pending(result)
-      await context.bot.send_message(
-        chat_id=self._settings.chat_id,
-        text="👍 Skip recorded.",
-        disable_notification=True,
+      await self._resolve_pending_with_feedback(
+        result=result,
+        message_id=pending.message_id,
+        original_text=msg.text or "",
+        feedback="✅ Skipped",
       )
       return
     is_default = False
@@ -289,6 +300,7 @@ class TelegramPreferenceMessenger:
     choices = pending.request.choices
     if idx < 1 or idx > len(choices):
       return
+    await query.answer(text="✅")
     option = choices[idx - 1]
     result = ProductDecision(
       decision="selected",
@@ -296,14 +308,13 @@ class TelegramPreferenceMessenger:
       selected_choice=option,
       make_default=is_default,
     )
-    await self._resolve_pending(result)
     ack_status = "✅ Default set" if is_default else "✅ Noted"
     ack_message = self._format_acknowledgement(ack_status, option)
-    await context.bot.send_message(
-      chat_id=self._settings.chat_id,
-      text=ack_message,
-      parse_mode=ParseMode.MARKDOWN_V2,
-      disable_notification=True,
+    await self._resolve_pending_with_feedback(
+      result=result,
+      message_id=pending.message_id,
+      original_text=msg.text or "",
+      feedback=ack_message,
     )
 
   async def _handle_message(self, update: Update, context: CallbackContextType) -> None:
@@ -380,6 +391,33 @@ class TelegramPreferenceMessenger:
         await app.bot.edit_message_reply_markup(
           chat_id=self._settings.chat_id,
           message_id=pending.message_id,
+          reply_markup=None,
+        )
+      except Exception:
+        pass
+
+  async def _resolve_pending_with_feedback(
+    self,
+    result: ProductDecision,
+    message_id: int,
+    original_text: str,
+    feedback: str,
+  ) -> None:
+    pending = self._pending
+    if pending is None:
+      return
+    if not pending.future.done():
+      pending.future.set_result(result)
+    app = self._application
+    if app is not None:
+      try:
+        # Edit the original message to append feedback and remove buttons
+        updated_text = f"{original_text}\n\n{feedback}"
+        await app.bot.edit_message_text(
+          chat_id=self._settings.chat_id,
+          message_id=message_id,
+          text=updated_text,
+          parse_mode=ParseMode.MARKDOWN_V2,
           reply_markup=None,
         )
       except Exception:

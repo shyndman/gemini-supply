@@ -6,9 +6,13 @@ import time
 from dataclasses import dataclass
 from datetime import timedelta
 from enum import Enum
+from importlib.resources import files
 from pathlib import Path
 from typing import Mapping, Protocol, Sequence
+from urllib.parse import urlparse
 
+import playwright
+import playwright.async_api
 import termcolor
 
 from gemini_supply.agent import BrowserAgent, LoopStatus
@@ -29,7 +33,6 @@ from gemini_supply.grocery import (
   ShoppingListProvider,
   YAMLShoppingListProvider,
 )
-from gemini_supply.log import TTYLogger
 from gemini_supply.models import (
   AddedOutcome,
   FailedOutcome,
@@ -52,6 +55,8 @@ from gemini_supply.preferences import (
   TelegramSettings,
 )
 from gemini_supply.profile import resolve_camoufox_exec, resolve_profile_dir
+from gemini_supply.prompt import build_shopper_prompt
+from gemini_supply.term import ActivityLog
 
 
 @dataclass(slots=True)
@@ -108,7 +113,7 @@ async def run_shopping(
   config: AppConfig,
 ) -> int:
   provider = _build_provider(list_path, config.shopping_list, no_retry)
-  logger = TTYLogger()
+  logger = ActivityLog()
   preferences = await _setup_preferences(config.preferences)
 
   try:
@@ -163,10 +168,60 @@ async def _setup_preferences(pref_cfg: PreferencesConfig) -> PreferenceResources
   return PreferenceResources(coordinator=coordinator, messenger=messenger)
 
 
+def load_init_scripts():
+  return [
+    files("gemini_supply.page").joinpath("srp.js").read_text(encoding="utf-8"),
+  ]
+
+
+async def _denature_search_results_page(page: playwright.async_api.Page) -> None:
+  url = page.url
+  parsed = urlparse(url)
+
+  termcolor.cprint(f"[denature] {url}", color="light_grey")
+  if parsed.path != "/en/online-grocery/search":
+    return
+
+  termcolor.cprint("[denature] On search results page", color="cyan")
+
+  # Check for and click any visible overlay close buttons
+  close_buttons = page.locator("a.close-overlay-box")
+  count = await close_buttons.count()
+  termcolor.cprint(f"[denature] Found {count} overlay close button(s), clicking...", color="cyan")
+  for i in range(count):
+    button = close_buttons.nth(i)
+    if await button.is_visible():
+      await button.click()
+      termcolor.cprint(f"[denature] Clicked overlay close button {i + 1}/{count}", color="green")
+
+  # Replace all a.product-details-link with span elements
+  product_links = page.locator("a.product-details-link")
+  link_count = await product_links.count()
+  if link_count > 0:
+    termcolor.cprint(
+      f"[denature] Replacing {link_count} product link(s) with spans...", color="cyan"
+    )
+    await page.evaluate("""(() => {
+      const links = document.querySelectorAll('a.product-details-link');
+      links.forEach(link => {
+        const span = document.createElement('span');
+        span.className = link.className;
+        span.innerHTML = link.innerHTML;
+        Array.from(link.attributes).forEach(attr => {
+          if (attr.name !== 'href') {
+            span.setAttribute(attr.name, attr.value);
+          }
+        });
+        link.parentNode.replaceChild(span, link);
+      });
+    })()""")
+    termcolor.cprint(f"[denature] Replaced {link_count} product links with spans", color="green")
+
+
 async def _run_shopping_flow(
   provider: ShoppingListProvider,
   settings: ShoppingSettings,
-  logger: TTYLogger,
+  logger: ActivityLog,
   preferences: PreferenceResources,
 ) -> ShoppingResults:
   profile_dir = resolve_profile_dir()
@@ -201,6 +256,8 @@ async def _run_shopping_flow(
     screen_size=settings.screen_size,
     user_data_dir=profile_dir,
     initial_url="https://www.metro.ca",
+    init_scripts=load_init_scripts(),
+    pre_iteration_delegate=_denature_search_results_page,
     highlight_mouse=True,
     enforce_restrictions=True,
     executable_path=camoufox_exec,
@@ -241,7 +298,7 @@ async def _run_sequential(
   items: Sequence[ShoppingListItem],
   provider: ShoppingListProvider,
   settings: ShoppingSettings,
-  logger: TTYLogger,
+  logger: ActivityLog,
   preferences: PreferenceResources,
   auth_manager: AuthManager,
   state: OrchestrationState,
@@ -280,7 +337,7 @@ async def _run_concurrent(
   items: Sequence[ShoppingListItem],
   provider: ShoppingListProvider,
   settings: ShoppingSettings,
-  logger: TTYLogger,
+  logger: ActivityLog,
   preferences: PreferenceResources,
   concurrency: int,
   auth_manager: AuthManager,
@@ -333,7 +390,7 @@ async def _process_item(
   item: ShoppingListItem,
   provider: ShoppingListProvider,
   settings: ShoppingSettings,
-  logger: TTYLogger,
+  logger: ActivityLog,
   preferences: PreferenceResources,
   auth_manager: AuthManager,
   state: OrchestrationState,
@@ -365,10 +422,8 @@ async def _process_item(
     return await _shop_single_item_in_tab(
       host=host,
       item=item,
+      settings=settings,
       shopping_list_provider=provider,
-      model_name=settings.model_name,
-      time_budget=settings.time_budget,
-      max_turns=settings.max_turns,
       logger=logger,
       preference_session=preference_session,
       existing_preference=existing_preference,
@@ -410,83 +465,13 @@ def _is_specific_request(normalized: NormalizedItem) -> bool:
   return any(qualifier.strip() for qualifier in normalized.qualifiers)
 
 
-def _build_task_prompt(
-  item_name: str,
-  normalized: NormalizedItem,
-  preference: PreferenceRecord | None,
-  specific_request: bool,
-) -> str:
-  from urllib.parse import quote_plus
-
-  if preference is not None:
-    # Case 1: We have a known preference - go directly to it
-    return textwrap.dedent(f"""
-      Product to add:
-      - Quantity: {normalized.quantity}
-      - Product: {preference.product_name}
-      - URL: {preference.product_url}
-
-      Instructions:
-
-      1. Navigate directly to the product URL above.
-      2. On the product page, press 'Add to Cart'.
-         If the "Delivery or Pickup?" form appears, click the "I haven't made my choice yet" link at the bottom to defer selection, then press 'Add to Cart' again.
-      3. Verify success: The 'Add to Cart' button becomes a quantity control (with +/−).
-         If it does not change, try again or explain why it failed.
-      4. Call report_item_added(item_name, price_text, url, quantity) when successful.
-         The 'url' MUST be the product page URL.
-      5. If the product is unavailable or out of stock, call report_item_not_found(item_name, explanation).
-
-      Constraints:
-        - Stay on metro.ca and allowed resources only.
-        - Do NOT navigate to checkout, payment, or account pages.
-        - Focus solely on adding the requested item.
-      """)
-
-  # Case 2: No preference - search and decide
-  encoded_query = quote_plus(item_name.replace(normalized.quantity_string or "", "").strip())
-  search_url = f"https://www.metro.ca/en/online-grocery/search?filter={encoded_query}"
-
-  return textwrap.dedent(f"""
-    Product to add: {item_name}
-
-    Instructions:
-
-    1. Navigate to the search results page: {search_url}
-    2. Examine the results. Based on what the user wrote ("{item_name}"), can you confidently pick the best match?
-       - If YES: Proceed to step 3.
-       - If NO (multiple reasonable options, ambiguous request): Call request_product_choice with up to 10 promising results.
-         Include title, price_text (currency string), and the product URL for each option.
-         The response will be a ProductDecision with a 'decision' field:
-         * If decision="selected": Use the URL from 'selected_choice' to navigate to that product, then proceed to step 3.
-         * If decision="alternate": The user provided new text in 'alternate_text'. Search for this alternate text instead.
-           If the alternate includes a quantity (e.g., "3 whole milk"), use that quantity. Otherwise, keep the original quantity.
-           Start over from step 1 with the new search.
-    3. CLICK THE PRODUCT IMAGE or name to open the product page (or navigate directly if you have a URL from ProductDecision).
-    4. On the product page, press 'Add to Cart'.
-       If the "Delivery or Pickup?" form appears, click the "I haven't made my choice yet" link at the bottom to defer selection, then press 'Add to Cart' again.
-    5. Verify success: The 'Add to Cart' button becomes a quantity control (with +/−).
-       If it does not change, try again or explain why it failed.
-    6. Call report_item_added(item_name, price_text, url, quantity) when successful.
-       The 'url' MUST be the product page URL (NOT the search results page).
-    7. If product cannot be located after reasonable attempts, call report_item_not_found(item_name, explanation).
-
-    Constraints:
-      - Stay on metro.ca and allowed resources only.
-      - Do NOT navigate to checkout, payment, or account pages.
-      - Focus solely on adding the requested item.
-    """)
-
-
 async def _shop_single_item_in_tab(
   *,
   host: CamoufoxHost,
+  settings: ShoppingSettings,
   item: ShoppingListItem,
   shopping_list_provider: ShoppingListProvider,
-  model_name: str,
-  time_budget: timedelta,
-  max_turns: int,
-  logger: TTYLogger,
+  logger: ActivityLog,
   preference_session: PreferenceItemSession,
   existing_preference: PreferenceRecord | None = None,
   specific_request: bool = False,
@@ -499,7 +484,7 @@ async def _shop_single_item_in_tab(
     color="cyan",
   )
   normalized = preference_session.normalized
-  prompt = _build_task_prompt(
+  prompt = build_shopper_prompt(
     item.name,
     normalized,
     existing_preference,
@@ -520,7 +505,7 @@ async def _shop_single_item_in_tab(
     )
     agent: BrowserAgent | None = None
     start = time.monotonic()
-    budget_seconds = time_budget.total_seconds()
+    budget_seconds = settings.time_budget.total_seconds()
     turns = 0
     try:
       session = ShoppingSession(
@@ -531,7 +516,7 @@ async def _shop_single_item_in_tab(
       agent = BrowserAgent(
         browser_computer=tab,
         query=prompt,
-        model_name=model_name,
+        model_name=settings.model_name,
         logger=logger,
         output_label=f"{agent_label} | {item.name}",
         agent_label=agent_label,
@@ -544,18 +529,20 @@ async def _shop_single_item_in_tab(
       status: LoopStatus = LoopStatus.CONTINUE
       while status == LoopStatus.CONTINUE:
         turns += 1
-        if turns > max_turns:
-          shopping_list_provider.mark_failed(item.id, f"max_turns_exceeded: {max_turns}")
+        if turns > settings.max_turns:
+          shopping_list_provider.mark_failed(item.id, f"max_turns_exceeded: {settings.max_turns}")
           termcolor.cprint(f"[{agent_label}] Max turns exceeded; marking failed.", color="yellow")
-          return FailedOutcome(error=f"max_turns_exceeded: {max_turns}")
+          return FailedOutcome(error=f"max_turns_exceeded: {settings.max_turns}")
 
         if time.monotonic() - start > budget_seconds:
-          shopping_list_provider.mark_failed(item.id, f"time_budget_exceeded: {time_budget}")
+          shopping_list_provider.mark_failed(
+            item.id, f"time_budget_exceeded: {settings.time_budget}"
+          )
           termcolor.cprint(
             f"[{agent_label}] Time budget exceeded; marking failed.",
             color="yellow",
           )
-          return FailedOutcome(error=f"time_budget_exceeded: {time_budget}")
+          return FailedOutcome(error=f"time_budget_exceeded: {settings.time_budget}")
 
         try:
           res = await agent.run_one_iteration()

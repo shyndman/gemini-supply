@@ -36,6 +36,10 @@ class Computer(abc.ABC):
     """Returns the screen size of the environment."""
 
   @abc.abstractmethod
+  async def pre_action(self) -> None:
+    """Gives the computer an opportunity to do something prior to the action being called"""
+
+  @abc.abstractmethod
   async def open_web_browser(self) -> EnvState:
     """Opens the web browser."""
 

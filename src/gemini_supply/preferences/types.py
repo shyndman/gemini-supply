@@ -7,7 +7,6 @@ from pydantic import (
   BaseModel,
   Field,
   HttpUrl,
-  computed_field,
   field_validator,
   model_validator,
 )
@@ -101,8 +100,6 @@ class ProductChoice(BaseModel):
   price_text: NonEmptyString
   """The price of the product as a formatted string, e.g. "$12.34"."""
 
-  @computed_field
-  @property
   def price_cents(self) -> int:
     """Computed price in cents from price_text."""
     return parse_price_cents(self.price_text)

@@ -20,7 +20,7 @@ import google.genai
 import termcolor
 from google.genai._extra_utils import (
   convert_number_values_for_dict_function_call_args,
-  invoke_function_from_dict_args,
+  invoke_function_from_dict_args_async,
 )
 from google.genai.types import (
   Candidate,
@@ -39,11 +39,14 @@ from google.genai.types import (
   Part,
   Tool,
 )
+from pydantic import BaseModel
 from rich.console import Console
 from rich.table import Table
 
 from gemini_supply.computers import Computer, EnvState
-from gemini_supply.log import TTYLogger
+from gemini_supply.grocery import ItemAddedResult, ItemNotFoundResult
+from gemini_supply.preferences import ProductDecision
+from gemini_supply.term import ActivityLog
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
 PREDEFINED_COMPUTER_USE_FUNCTIONS = [
@@ -56,10 +59,12 @@ PREDEFINED_COMPUTER_USE_FUNCTIONS = [
   "wait_5_seconds",
   "go_back",
   "go_forward",
-  "search",
   "navigate",
   "key_combination",
   "drag_and_drop",
+]
+EXCLUDED_PREDEFINED_FUNCTIONS = [
+  "search",
 ]
 
 
@@ -74,8 +79,9 @@ class SafetyDecision(TypedDict):
 
 
 # Built-in Computer Use tools return EnvState.
-# Custom provided functions return typed dictionaries.
-ActionResult = EnvState  # | dict[str, object]
+# Custom provided functions return Pydantic models.
+CustomToolResult = ItemAddedResult | ItemNotFoundResult | ProductDecision
+ActionResult = EnvState | CustomToolResult
 
 CustomFunctionCallable: TypeAlias = Callable[..., Any]
 
@@ -96,7 +102,7 @@ class BrowserAgent:
     custom_tools: list[CustomFunctionCallable] = [],
     output_label: str | None = None,
     agent_label: str | None = None,
-    logger: TTYLogger | None = None,
+    logger: ActivityLog | None = None,
   ):
     self._browser_computer = browser_computer
     self._query = query
@@ -119,7 +125,6 @@ class BrowserAgent:
       )
     ]
 
-    self._excluded_predefined_functions: list[str] = []
     self._custom_tools_by_name = {
       fn.__name__: (
         FunctionDeclaration.from_callable(client=self._client._api_client, callable=fn),
@@ -144,7 +149,7 @@ class BrowserAgent:
         Tool(
           computer_use=ComputerUse(
             environment=Environment.ENVIRONMENT_BROWSER,
-            excluded_predefined_functions=self._excluded_predefined_functions,
+            excluded_predefined_functions=EXCLUDED_PREDEFINED_FUNCTIONS,
           ),
         ),
         Tool(function_declarations=[decl for (decl, _) in self._custom_tools_by_name.values()]),
@@ -152,6 +157,8 @@ class BrowserAgent:
     )
 
   async def handle_action(self, action: FunctionCall) -> ActionResult:
+    await self._browser_computer.pre_action()
+
     """Handles the action and returns the environment state."""
     assert action.args is not None, f"Action {action.name} missing required args"
     match action.name:
@@ -233,7 +240,7 @@ class BrowserAgent:
       case _ if action.name in self._custom_tools_by_name:
         (_, custom_fn) = self._custom_tools_by_name[action.name]
         args = convert_number_values_for_dict_function_call_args(action.args)
-        return invoke_function_from_dict_args(args, custom_fn)
+        return await invoke_function_from_dict_args_async(args, custom_fn)
 
       case _:
         raise ValueError(f"Unsupported function: {action.name}")
@@ -313,6 +320,7 @@ class BrowserAgent:
 
   async def run_one_iteration(self) -> LoopStatus:
     self._turn_index += 1
+
     # Generate a response from the model.
     with console.status(self._with_agent_prefix("Generating response from Gemini Computer Use...")):
       response = await self.get_model_response()
@@ -414,11 +422,12 @@ class BrowserAgent:
             ],
           )
         )
-      # Handle custom function responses (TypedDicts)
+      # Handle custom function responses (Pydantic models)
       else:
-        # fc_result is one of our custom TypedDicts; cast to a plain mapping for SDK type
+        # fc_result is a Pydantic model; convert to dict at SDK boundary
+        assert isinstance(fc_result, BaseModel), f"Expected BaseModel, got {type(fc_result)}"
         function_responses.append(
-          FunctionResponse(name=function_call.name, response=cast(dict[str, object], fc_result))
+          FunctionResponse(name=function_call.name, response=fc_result.model_dump())
         )
 
     self._contents.append(

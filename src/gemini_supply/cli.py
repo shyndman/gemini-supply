@@ -14,7 +14,7 @@ from gemini_supply.computers import ScreenSize
 from gemini_supply.computers.browser_host import CamoufoxHost, build_camoufox_options
 from gemini_supply.config import DEFAULT_CONFIG_PATH, ConcurrencyConfig, load_config
 from gemini_supply.models import ShoppingSettings
-from gemini_supply.orchestrator import run_shopping
+from gemini_supply.orchestrator import run_shopping, load_init_scripts
 from gemini_supply.profile import resolve_camoufox_exec, resolve_profile_dir
 
 PLAYWRIGHT_SCREEN_SIZE = (1024, 768)
@@ -92,6 +92,7 @@ class Browse(Command):
       screen_size=ScreenSize(*PLAYWRIGHT_SCREEN_SIZE),
       user_data_dir=profile_dir,
       initial_url=self.initial_url,
+      init_scripts=load_init_scripts(),
       enforce_restrictions=False,
       executable_path=camoufox_exec,
       camoufox_options=build_camoufox_options(),
