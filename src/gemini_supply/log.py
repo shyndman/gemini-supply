@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from io import BytesIO
 from typing import Optional
 
 import logfire
+from PIL import Image as PILImage
+from PIL.Image import Image as PILImageT
 from rich.console import Console
 from rich.table import Table
-
-from gemini_supply.display import display_image_kitty
+from textual_image.renderable import ConsoleImage
 
 
 def setup_logging() -> None:
@@ -45,7 +47,14 @@ class TTYLogger:
     async with self._lock:
       if label:
         self._console.print(f"[cyan]{label}[/cyan] → {action_name} @ {url}")
-      display_image_kitty(png_bytes)
+      display_image_bytes_in_terminal(png_bytes)
 
 
-__all__ = ["setup_logging", "TTYLogger"]
+def display_image_bytes_in_terminal(png_bytes: bytes) -> None:
+  with PILImage.open(BytesIO(png_bytes)) as pil_image:
+    display_image_in_terminal(pil_image)
+
+
+def display_image_in_terminal(image: PILImageT) -> None:
+  with Console() as console:
+    console.print(ConsoleImage(image, width="30%", height="auto"))

@@ -21,11 +21,10 @@ dependencies = [
     "pyyaml>=6.0.3",
     "rich>=14.2.0",
     "termcolor==3.1.0",
-    "playwright-captcha>=0.1.1",
     "logfire>=4.13.2",
     "opentelemetry-instrumentation-google-genai>=0.4b0",
-    "term-image>=0.7.2",
     "pillow>=10.4.0",
+    "textual-image>=0.8.4",
 ]
 
 [project.scripts]
