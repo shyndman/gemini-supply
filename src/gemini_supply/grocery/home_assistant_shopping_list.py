@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
+from gemini_supply.config import HomeAssistantShoppingListConfig
 from gemini_supply.grocery.types import (
   ItemAddedResult,
   ItemNotFoundResult,
@@ -65,17 +66,14 @@ class _EntityItemsData(BaseModel):
 
 @dataclass
 class HomeAssistantShoppingListProvider:
-  ha_url: str
-  token: str
+  config: HomeAssistantShoppingListConfig
   no_retry: bool = False
-  entity_id: str = "todo.shopping_list"
 
   # Accumulators for summary sections this provider controls
   _duplicates: list[str] = None  # type: ignore[assignment]
   _out_of_stock: list[str] = None  # type: ignore[assignment]
 
   def __post_init__(self) -> None:
-    self.ha_url = self.ha_url.rstrip("/")
     self._duplicates = []
     self._out_of_stock = []
 
@@ -160,7 +158,7 @@ class HomeAssistantShoppingListProvider:
 
   def _headers(self) -> dict[str, str]:
     return {
-      "Authorization": f"Bearer {self.token}",
+      "Authorization": f"Bearer {self.config.token}",
       "Content-Type": "application/json",
     }
 
@@ -169,15 +167,15 @@ class HomeAssistantShoppingListProvider:
     import urllib.request
     from urllib.error import HTTPError, URLError
 
-    url = f"{self.ha_url}/api/services/todo/get_items?return_response"
-    payload = {"entity_id": self.entity_id}
+    url = f"{self.config.url}/api/services/todo/get_items?return_response"
+    payload = {"entity_id": self.config.entity_id}
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers=self._headers(), method="POST")
     try:
       with urllib.request.urlopen(req, timeout=5) as resp:  # type: ignore[reportUnknownMemberType]
         raw_data = json.loads(resp.read().decode("utf-8"))
         response = _TodoGetItemsResponse.model_validate(raw_data)
-        entity_data = response.service_response.get(self.entity_id)
+        entity_data = response.service_response.get(self.config.entity_id)
         if entity_data is None:
           return []
         return entity_data.items
@@ -200,10 +198,10 @@ class HomeAssistantShoppingListProvider:
     import urllib.request
     from urllib.error import HTTPError
 
-    url = f"{self.ha_url}/api/services/todo/update_item"
+    url = f"{self.config.url}/api/services/todo/update_item"
 
     # Map old fields to new service parameters
-    payload: dict[str, object] = {"entity_id": self.entity_id, "item": item_uid}
+    payload: dict[str, object] = {"entity_id": self.config.entity_id, "item": item_uid}
 
     if "name" in fields:
       payload["rename"] = fields["name"]
@@ -225,7 +223,7 @@ class HomeAssistantShoppingListProvider:
     import urllib.request
     from urllib.error import HTTPError
 
-    url = f"{self.ha_url}/api/services/persistent_notification/create"
+    url = f"{self.config.url}/api/services/persistent_notification/create"
     payload = {"title": "Grocery Shopping Complete", "message": markdown}
     req = urllib.request.Request(
       url,

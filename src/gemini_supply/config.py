@@ -56,6 +56,10 @@ class HomeAssistantShoppingListConfig(BaseModel):
   provider: Literal["home_assistant"]
   url: str
   token: str
+  entity_id: str = Field(
+    default="todo.shopping_list",
+    pattern=r"^todo\..+$",
+  )
 
   @field_validator("url", "token", mode="after")
   @classmethod

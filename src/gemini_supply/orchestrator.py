@@ -124,9 +124,7 @@ def _build_provider(
   list_path: Path | None, config: ShoppingListConfig, no_retry: bool
 ) -> ShoppingListProvider:
   if isinstance(config, HomeAssistantShoppingListConfig):
-    return HomeAssistantShoppingListProvider(
-      ha_url=config.url, token=config.token, no_retry=no_retry
-    )
+    return HomeAssistantShoppingListProvider(config=config, no_retry=no_retry)
 
   if isinstance(config, YAMLShoppingListConfig):
     path = list_path or config.path

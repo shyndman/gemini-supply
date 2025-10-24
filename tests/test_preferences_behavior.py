@@ -156,9 +156,14 @@ def test_shopping_results_track_default_flags() -> None:
 
 
 def test_home_assistant_summary_marks_default_notes() -> None:
-  provider = HomeAssistantShoppingListProvider(
-    ha_url="http://example", token="token", no_retry=True
+  from gemini_supply.config import HomeAssistantShoppingListConfig
+
+  config = HomeAssistantShoppingListConfig(
+    provider="home_assistant",
+    url="http://example",
+    token="token",
   )
+  provider = HomeAssistantShoppingListProvider(config=config, no_retry=True)
   summary = ShoppingSummary(
     added_items=[
       _added_result(),

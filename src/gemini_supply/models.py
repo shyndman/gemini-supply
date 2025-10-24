@@ -1,9 +1,7 @@
-from __future__ import annotations
-
 import asyncio
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Literal, TYPE_CHECKING
+from typing import Literal
 
 from gemini_supply.computers import ScreenSize
 from gemini_supply.config import ConcurrencyConfig
@@ -14,9 +12,8 @@ from gemini_supply.grocery.types import (
 )
 from gemini_supply.preferences.types import ProductChoice, ProductDecision
 
-if TYPE_CHECKING:
-  from gemini_supply.grocery import ShoppingListItem, ShoppingListProvider
-  from gemini_supply.preferences import PreferenceItemSession
+from gemini_supply.grocery import ShoppingListItem, ShoppingListProvider
+from gemini_supply.preferences import PreferenceItemSession
 
 
 def _empty_added_results() -> list[ItemAddedResult]:

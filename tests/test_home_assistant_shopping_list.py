@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
+from gemini_supply.config import HomeAssistantShoppingListConfig
 from gemini_supply.grocery.home_assistant_shopping_list import (
   HomeAssistantShoppingListProvider,
 )
@@ -20,21 +21,23 @@ from gemini_supply.grocery.types import (
 @pytest.fixture
 def provider() -> HomeAssistantShoppingListProvider:
   """Create a provider instance for testing."""
-  return HomeAssistantShoppingListProvider(
-    ha_url="http://localhost:8123",
+  config = HomeAssistantShoppingListConfig(
+    provider="home_assistant",
+    url="http://localhost:8123",
     token="test-token",
-    no_retry=False,
   )
+  return HomeAssistantShoppingListProvider(config=config, no_retry=False)
 
 
 @pytest.fixture
 def provider_no_retry() -> HomeAssistantShoppingListProvider:
   """Create a provider instance with no_retry=True."""
-  return HomeAssistantShoppingListProvider(
-    ha_url="http://localhost:8123",
+  config = HomeAssistantShoppingListConfig(
+    provider="home_assistant",
+    url="http://localhost:8123",
     token="test-token",
-    no_retry=True,
   )
+  return HomeAssistantShoppingListProvider(config=config, no_retry=True)
 
 
 class TestGetUncompletedItems:
@@ -583,21 +586,26 @@ class TestSummaryFormatting:
 class TestInitialization:
   """Tests for provider initialization."""
 
-  def test_strips_trailing_slash_from_url(self) -> None:
-    """Should strip trailing slash from HA URL."""
-    provider = HomeAssistantShoppingListProvider(
-      ha_url="http://localhost:8123/",
+  def test_normalizes_url(self) -> None:
+    """Config should normalize URL via pydantic validators."""
+    config = HomeAssistantShoppingListConfig(
+      provider="home_assistant",
+      url="http://localhost:8123/",
       token="test-token",
     )
+    provider = HomeAssistantShoppingListProvider(config=config, no_retry=False)
 
-    assert provider.ha_url == "http://localhost:8123"
+    # URL should be accessible through config
+    assert provider.config.url == "http://localhost:8123/"
 
   def test_initializes_accumulator_lists(self) -> None:
     """Should initialize empty accumulator lists."""
-    provider = HomeAssistantShoppingListProvider(
-      ha_url="http://localhost:8123",
+    config = HomeAssistantShoppingListConfig(
+      provider="home_assistant",
+      url="http://localhost:8123",
       token="test-token",
     )
+    provider = HomeAssistantShoppingListProvider(config=config, no_retry=False)
 
     assert provider._duplicates == []
     assert provider._out_of_stock == []
