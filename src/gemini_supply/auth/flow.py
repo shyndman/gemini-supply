@@ -2,22 +2,24 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import AsyncIterator, Awaitable, Callable, Sequence, TypeAlias
 
 import termcolor
-from playwright.async_api import ElementHandle, Page
+from playwright.async_api import ElementHandle, Page, Position
 from playwright.async_api import TimeoutError as PlaywrightTimeout
-from playwright_captcha import CaptchaType, ClickSolver, FrameworkType
 
+from gemini_supply.auth.short_fence import find_interactive_element_click_location
 from gemini_supply.computers import CamoufoxHost
+from gemini_supply.log import display_image_bytes_in_terminal
 
-SHORT_FENCE_WAIT_MS = 1000
+SHORT_FENCE_ATTEMPTS = 4
+SHORT_FENCE_WAIT_MS = 2000
 
 AuthFlow: TypeAlias = Callable[[CamoufoxHost], Awaitable[None]]
-SHORT_FENCE_TYPE = CaptchaType.CLOUDFLARE_TURNSTILE
 
 
 @dataclass(slots=True)
@@ -89,10 +91,10 @@ async def _perform_login(host: CamoufoxHost) -> None:
       termcolor.cprint("[auth] Existing authenticated session detected; skipping login.", "yellow")
       return
 
-    async with ClickSolver(framework=FrameworkType.CAMOUFOX, page=page) as solver:
-      await _launch_login_drawer(page)
-      await _solve_short_fence(page, solver)
+    await _launch_login_drawer(page)
+    await _solve_short_fence(page)
     await _submit_credentials(page, credentials)
+
     termcolor.cprint("[auth] Submitted credentials; waiting for redirect.", "cyan")
     await page.wait_for_load_state("networkidle")
     final_page = await _wait_for_authenticated_page(host, host.context.pages)
@@ -181,10 +183,13 @@ async def _open_promotions(page: Page) -> None:
   await page.wait_for_load_state()
 
 
+AUTH_URL_PATTERN = re.compile("^https://auth.moiid.ca/")
+
+
 async def _launch_login_drawer(page: Page) -> None:
   termcolor.cprint("[auth] Opening login drawer.", "cyan")
   await _hover_and_click(page, ".login--btn")
-  await page.wait_for_selector("#loginSidePanelForm", state="visible", timeout=5000)
+  await page.wait_for_timeout(1000)
   termcolor.cprint("[auth] Triggering login action.", "cyan")
   cta = await page.wait_for_selector(
     "#loginSidePanelForm .cta-basic-primary", state="visible", timeout=5000
@@ -192,39 +197,53 @@ async def _launch_login_drawer(page: Page) -> None:
   if cta is None:
     raise AuthenticationError("Login button in side panel not found.")
   await _click_center(page, cta)
-  await page.wait_for_timeout(300)
-  termcolor.cprint("[auth] Waiting for identity redirect.", "cyan")
-  try:
-    await page.wait_for_function("() => location.href.includes('auth.')", timeout=30000)
-  except PlaywrightTimeout:
-    termcolor.cprint("[auth] Redirect took longer than expected; waiting for load state.", "yellow")
-    await page.wait_for_load_state()
+
+  await page.wait_for_url(AUTH_URL_PATTERN)
 
 
-async def _solve_short_fence(page: Page, solver: ClickSolver) -> None:
+async def _solve_short_fence(page: Page) -> None:
   termcolor.cprint("[auth] Preparing short fence solver.", "cyan")
-  await page.wait_for_timeout(SHORT_FENCE_WAIT_MS)
-  await solver.solve_captcha(
-    captcha_container=page,
-    captcha_type=SHORT_FENCE_TYPE,
-  )
+  click_position: Position | None = None
+  for attempt in range(SHORT_FENCE_ATTEMPTS):
+    await page.wait_for_timeout(SHORT_FENCE_WAIT_MS)
+    png_bytes = await page.locator(".main-content").screenshot(timeout=2000)
+    display_image_bytes_in_terminal(png_bytes)
+    click_position = find_interactive_element_click_location(png_bytes)
+    if click_position is not None:
+      termcolor.cprint(f"[auth] Click location determined, {click_position}.", "cyan")
+      break
+
+  if click_position is None:  # type: ignore
+    raise AuthenticationError("Short fence challenge not detected.")
+
+  await page.click(".main-content", position=click_position)
   termcolor.cprint("[auth] Short fence cleared.", "green")
 
 
 async def _submit_credentials(page: Page, credentials: AuthCredentials) -> None:
+  termcolor.cprint("[auth] Starting credential submission.", "cyan")
+  termcolor.cprint(f"[auth] Current page URL: {page.url}", "cyan")
+
+  termcolor.cprint("[auth] Waiting for username field (#signInName).", "cyan")
   user_input = await page.wait_for_selector("#signInName", timeout=15000)
   if user_input is None:
     raise AuthenticationError("Username field not present.")
+  termcolor.cprint("[auth] Username field found.", "green")
   await _click_center(page, user_input)
   await page.keyboard.type(credentials.username, delay=80)
+  termcolor.cprint("[auth] Username entered.", "green")
   await page.keyboard.press("Tab")
 
+  termcolor.cprint("[auth] Waiting for password field (#password).", "cyan")
   password_input = await page.wait_for_selector("#password", timeout=5000)
   if password_input is None:
     raise AuthenticationError("Password field not present.")
+  termcolor.cprint("[auth] Password field found.", "green")
   await _click_center(page, password_input)
   await page.keyboard.type(credentials.password, delay=90)
+  termcolor.cprint("[auth] Password entered.", "green")
   await page.keyboard.press("Enter")
+  termcolor.cprint("[auth] Submitted login form (pressed Enter).", "green")
 
 
 async def _wait_for_authenticated_page(host: CamoufoxHost, pages: Sequence[Page]) -> Page:
