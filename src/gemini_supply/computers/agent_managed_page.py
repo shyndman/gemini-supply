@@ -9,8 +9,8 @@ from .computer import Computer, EnvState, ScreenSize
 from .keys import PLAYWRIGHT_KEY_MAP
 
 
-class CamoufoxTab(Computer):
-  """A tab-scoped Computer implementation backed by a single Page."""
+class AgentManagedPage(Computer):
+  """An agent-managed Computer implementation backed by a single Playwright Page."""
 
   def __init__(
     self,
@@ -27,7 +27,7 @@ class CamoufoxTab(Computer):
     self._pre_iteration_delegate = pre_iteration_delegate
     self._highlight_mouse = highlight_mouse
 
-  async def __aenter__(self) -> "CamoufoxTab":
+  async def __aenter__(self) -> "AgentManagedPage":
     return self
 
   async def __aexit__(
@@ -152,7 +152,7 @@ class CamoufoxTab(Computer):
     return await self.current_state()
 
   async def search(self) -> EnvState:
-    raise NotImplementedError("search() not implemented in CamoufoxTab")
+    raise NotImplementedError("search() not implemented in AgentManagedPage")
 
   async def navigate(self, url: str) -> EnvState:
     normalized_url = url

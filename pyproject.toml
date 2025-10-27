@@ -9,6 +9,7 @@ dependencies = [
     "better-exceptions>=0.3.3",
     "camoufox[geoip]>=0.4.11",
     "clypi>=1.8.1",
+    "crawlee>=1.0.4",
     "google-genai>=1.40.0",
     "httpx>=0.28.1",
     "libsh>=0.1.0",

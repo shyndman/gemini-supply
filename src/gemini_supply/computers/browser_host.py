@@ -24,7 +24,7 @@ from camoufox.async_api import AsyncNewBrowser  # type: ignore
 from camoufox.utils import launch_options as camoufox_launch_options
 from playwright.async_api import async_playwright
 
-from .browser_tab import CamoufoxTab
+from .agent_managed_page import AgentManagedPage
 from .computer import ScreenSize
 
 
@@ -80,13 +80,14 @@ def build_camoufox_options() -> CamoufoxLaunchOptions:
 
 
 class CamoufoxHost:
-  """Single persistent Camoufox/Firefox context that can spawn per-tab Computers.
+  """Single persistent Camoufox/Firefox context that can spawn pages.
 
   - Uses a hardened Firefox (Camoufox) binary
   - Persistent profile via `user_data_dir`
   - Enforces allowlist/blocklist when `enforce_restrictions=True`
   - Injects status banner via init script
-  - Provides `new_tab()` to create an isolated TabComputer per agent
+  - Provides `new_agent_managed_page()` to create Computer-wrapped pages for agents
+  - Provides `new_page()` to create raw Playwright pages for utilities (e.g., auth)
   """
 
   def __init__(
@@ -115,8 +116,6 @@ class CamoufoxHost:
     # Runtime-managed Playwright objects
     self._playwright: playwright.async_api.Playwright | None = None
     self._context: playwright.async_api.BrowserContext | None = None
-    self._browser: playwright.async_api.Browser | None = None
-    self._initial_page_claimed = False
     self._restrictions_active = False
 
     # Camoufox launch options (use default if not provided)
@@ -193,16 +192,11 @@ class CamoufoxHost:
       lambda: camoufox_launch_options(
         executable_path=exe_path,
         headless=camoufox_headless,
+        window=(self._screen_size.width, self._screen_size.height),
         **launch_kwargs,
       ),
     )
-    termcolor.cprint(f"Camoufox executable: {exe_path or '<default>'}", color="yellow")
-
     options["user_data_dir"] = str(self._user_data_dir)
-    options.setdefault(
-      "viewport",
-      {"width": self._screen_size.width, "height": self._screen_size.height},
-    )
 
     return options
 
@@ -227,7 +221,6 @@ class CamoufoxHost:
       termcolor.cprint("Launching with Camoufox options (persistent context)...", color="cyan")
       context = await self._launch_with_camoufox_options(headless=headless)
       self._context = context
-      self._browser = context.browser
     except Exception as e:  # noqa: BLE001
       raise RuntimeError(
         f"Failed to launch Camoufox persistent context with profile '{self._user_data_dir}': {e}"
@@ -269,7 +262,6 @@ class CamoufoxHost:
         pass
       finally:
         self._context = None
-        self._browser = None
     if self._playwright is not None:
       try:
         await self._playwright.stop()
@@ -280,24 +272,16 @@ class CamoufoxHost:
 
   async def _acquire_page(self) -> playwright.async_api.Page:
     c = self.context
-    # Reuse the first existing page created by the persistent context to avoid
-    # spawning an extra blank window, which Firefox may do on startup.
-    if not self._initial_page_claimed and c.pages:
-      page = c.pages[0]
-      self._initial_page_claimed = True
-      # Always navigate to the initial URL to normalize state.
-      await page.goto(self._initial_url)
-    else:
-      page = await c.new_page()
-      await page.goto(self._initial_url)
+    page = await c.new_page()
+    await page.goto(self._initial_url)
     return page
 
   async def new_page(self) -> playwright.async_api.Page:
     return await self._acquire_page()
 
-  async def new_tab(self) -> CamoufoxTab:
+  async def new_agent_managed_page(self) -> AgentManagedPage:
     page = await self._acquire_page()
-    return CamoufoxTab(
+    return AgentManagedPage(
       page=page,
       screen_size=self._screen_size,
       is_authenticated_delegate=self.is_authenticated,

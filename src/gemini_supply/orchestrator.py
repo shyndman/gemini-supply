@@ -497,7 +497,7 @@ async def _shop_single_item_in_tab(
   max_attempts = 2
   for attempt in range(1, max_attempts + 1):
     needs_retry = False
-    tab = await host.new_tab()
+    page = await host.new_agent_managed_page()
     termcolor.cprint(
       f"[{agent_label}] Launching browser agent "
       f"(attempt {attempt}/{max_attempts}) for '{item.name}'.",
@@ -514,7 +514,7 @@ async def _shop_single_item_in_tab(
         preference_session=preference_session,
       )
       agent = BrowserAgent(
-        browser_computer=tab,
+        browser_computer=page,
         query=prompt,
         model_name=settings.model_name,
         logger=logger,
@@ -575,7 +575,7 @@ async def _shop_single_item_in_tab(
         return FailedOutcome(error="completed_without_reporting")
     finally:
       try:
-        await tab.close()
+        await page.close()
       except Exception:
         pass
       if agent is not None:
