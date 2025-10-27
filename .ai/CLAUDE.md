@@ -50,10 +50,9 @@ uv run ruff check .
 uv run ruff format .
 ty check
 uv run pytest -n auto -q
-# If deps change, regenerate uv.lock
-uv pip compile pyproject.toml --upgrade
 ```
 
+- Add new dependencies using `uv add <package>`, NOT by manually editing `pyproject.toml`
 - After completing a task or TODO list, always run `ruff format .`, `ruff check . --fix`, and `ty check`, and resolve every reported issue before considering the work done.
 
 ### Coding Guidelines (Repo)
