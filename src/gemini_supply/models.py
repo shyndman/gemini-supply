@@ -124,11 +124,11 @@ class ShoppingSession:
       price_text=price_text,
       quantity=quantity,
     )
-    self.provider.mark_completed(self.item.id, self.result)
+    await self.provider.mark_completed(self.item.id, self.result)
     await self.preference_session.record_success(self.result)
     return self.result
 
-  def report_item_not_found(self, item_name: str, explanation: str) -> ItemNotFoundResult:
+  async def report_item_not_found(self, item_name: str, explanation: str) -> ItemNotFoundResult:
     """Report that an item could not be located.
 
     Args:
@@ -139,7 +139,7 @@ class ShoppingSession:
       ItemNotFoundResult with the details
     """
     self.result = ItemNotFoundResult(item_name=item_name, explanation=explanation)
-    self.provider.mark_not_found(self.item.id, self.result)
+    await self.provider.mark_not_found(self.item.id, self.result)
     return self.result
 
   async def request_product_choice(self, choices: list[ProductChoice]) -> ProductDecision:
@@ -155,7 +155,7 @@ class ShoppingSession:
 
     # Handle skip decision immediately without involving the agent further
     if decision.decision == "skip":
-      self.report_item_not_found(
+      await self.report_item_not_found(
         self.item.name, "User chose to skip this item during product selection"
       )
 

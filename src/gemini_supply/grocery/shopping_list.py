@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import asyncio
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, cast
 
+import aiofiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from gemini_supply.grocery.types import (
@@ -16,17 +18,17 @@ from gemini_supply.grocery.types import (
 
 
 class ShoppingListProvider(Protocol):
-  def get_uncompleted_items(self) -> list[ShoppingListItem]: ...
+  async def get_uncompleted_items(self) -> list[ShoppingListItem]: ...
 
-  def mark_completed(self, item_id: str, result: ItemAddedResult) -> None: ...
+  async def mark_completed(self, item_id: str, result: ItemAddedResult) -> None: ...
 
-  def mark_not_found(self, item_id: str, result: ItemNotFoundResult) -> None: ...
+  async def mark_not_found(self, item_id: str, result: ItemNotFoundResult) -> None: ...
 
-  def mark_out_of_stock(self, item_id: str) -> None: ...
+  async def mark_out_of_stock(self, item_id: str) -> None: ...
 
-  def mark_failed(self, item_id: str, error: str) -> None: ...
+  async def mark_failed(self, item_id: str, error: str) -> None: ...
 
-  def send_summary(self, summary: ShoppingSummary) -> None: ...
+  async def send_summary(self, summary: ShoppingSummary) -> None: ...
 
 
 class YAMLShoppingListItemModel(BaseModel):
@@ -111,9 +113,10 @@ class YAMLShoppingListDocumentModel(BaseModel):
 @dataclass
 class YAMLShoppingListProvider:
   path: Path
+  _lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False)
 
-  def get_uncompleted_items(self) -> list[ShoppingListItem]:
-    data = self._read()
+  async def get_uncompleted_items(self) -> list[ShoppingListItem]:
+    data = await self._read()
     items: list[ShoppingListItem] = []
     for raw in data.items:
       if raw.status != ItemStatus.NEEDS_ACTION:
@@ -127,53 +130,28 @@ class YAMLShoppingListProvider:
       )
     return items
 
-  def mark_completed(self, item_id: str, result: ItemAddedResult) -> None:
-    data = self._read()
-    for raw in data.items:
-      if raw.resolved_id == item_id:
-        raw.status = ItemStatus.COMPLETED
-        raw.price_text = result.price_text
-        raw.price_cents = result.price_cents()
-        raw.quantity = result.quantity
-        break
-    self._write(data)
+  async def mark_completed(self, item_id: str, result: ItemAddedResult) -> None:
+    async with self._lock:
+      data = await self._read()
+      for raw in data.items:
+        if raw.resolved_id == item_id:
+          raw.status = ItemStatus.COMPLETED
+          raw.price_text = result.price_text
+          raw.price_cents = result.price_cents()
+          raw.quantity = result.quantity
+          break
+      await self._write(data)
 
-  def mark_not_found(self, item_id: str, result: ItemNotFoundResult) -> None:
-    data = self._read()
-    for raw in data.items:
-      if raw.resolved_id == item_id:
-        tags = list(raw.tags)
-        if "#not_found" not in tags:
-          tags.append("#not_found")
-        raw.tags = tags
-        raw.explanation = result.explanation
-        break
-    self._write(data)
+  async def mark_not_found(self, item_id: str, result: ItemNotFoundResult) -> None:
+    await self._add_tag_and_update(item_id, "#not_found", explanation=result.explanation)
 
-  def mark_out_of_stock(self, item_id: str) -> None:
-    data = self._read()
-    for raw in data.items:
-      if raw.resolved_id == item_id:
-        tags = list(raw.tags)
-        if "#out_of_stock" not in tags:
-          tags.append("#out_of_stock")
-        raw.tags = tags
-        break
-    self._write(data)
+  async def mark_out_of_stock(self, item_id: str) -> None:
+    await self._add_tag_and_update(item_id, "#out_of_stock")
 
-  def mark_failed(self, item_id: str, error: str) -> None:
-    data = self._read()
-    for raw in data.items:
-      if raw.resolved_id == item_id:
-        tags = list(raw.tags)
-        if "#failed" not in tags:
-          tags.append("#failed")
-        raw.tags = tags
-        raw.error = error
-        break
-    self._write(data)
+  async def mark_failed(self, item_id: str, error: str) -> None:
+    await self._add_tag_and_update(item_id, "#failed", error=error)
 
-  def send_summary(self, summary: ShoppingSummary) -> None:
+  async def send_summary(self, summary: ShoppingSummary) -> None:
     # Write a plain text summary next to the list file as a simple baseline.
     out = self.path.with_suffix(".summary.txt")
     lines: list[str] = []
@@ -188,11 +166,31 @@ class YAMLShoppingListProvider:
     for f in summary.failed_items:
       lines.append(f"- {f}\n")
     lines.append(f"\nTotal: {summary.total_cost_text}\n")
-    out.write_text("".join(lines), encoding="utf-8")
+    summary_text = "".join(lines)
+    async with aiofiles.open(out, "w", encoding="utf-8") as fh:
+      await fh.write(summary_text)
 
   # --- Internal helpers ---
 
-  def _read(self) -> YAMLShoppingListDocumentModel:
+  async def _add_tag_and_update(
+    self, item_id: str, tag: str, *, explanation: str | None = None, error: str | None = None
+  ) -> None:
+    async with self._lock:
+      data = await self._read()
+      for raw in data.items:
+        if raw.resolved_id == item_id:
+          tags = list(raw.tags)
+          if tag not in tags:
+            tags.append(tag)
+          raw.tags = tags
+          if explanation is not None:
+            raw.explanation = explanation
+          if error is not None:
+            raw.error = error
+          break
+      await self._write(data)
+
+  async def _read(self) -> YAMLShoppingListDocumentModel:
     # Lazy import to avoid hard dependency if user hasn't installed YAML yet.
     try:
       import yaml  # type: ignore[reportMissingImports]
@@ -203,7 +201,8 @@ class YAMLShoppingListProvider:
 
     if not self.path.exists():
       return YAMLShoppingListDocumentModel()
-    raw_text = self.path.read_text(encoding="utf-8")
+    async with aiofiles.open(self.path, "r", encoding="utf-8") as f:
+      raw_text = await f.read()
     parsed = yaml.safe_load(raw_text)
     if parsed is None:
       parsed_mapping: dict[str, object] = {}
@@ -216,7 +215,7 @@ class YAMLShoppingListProvider:
     except ValidationError as exc:
       raise ValueError("Invalid YAML format: unable to parse items") from exc
 
-  def _write(self, data: YAMLShoppingListDocumentModel) -> None:
+  async def _write(self, data: YAMLShoppingListDocumentModel) -> None:
     try:
       import yaml  # type: ignore[reportMissingImports]
     except Exception as e:  # noqa: BLE001
@@ -225,10 +224,10 @@ class YAMLShoppingListProvider:
       ) from e
     parent = self.path.parent
     parent.mkdir(parents=True, exist_ok=True)
-    with self.path.open("w", encoding="utf-8") as fh:
-      yaml.safe_dump(
-        data.model_dump(mode="python", exclude_none=True),
-        fh,
-        sort_keys=False,
-        allow_unicode=True,
-      )
+    yaml_text = yaml.safe_dump(
+      data.model_dump(mode="python", exclude_none=True),
+      sort_keys=False,
+      allow_unicode=True,
+    )
+    async with aiofiles.open(self.path, "w", encoding="utf-8") as fh:
+      await fh.write(yaml_text)

@@ -1,5 +1,9 @@
-from dataclasses import dataclass
+import asyncio
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import cast
 
+import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from gemini_supply.config import HomeAssistantShoppingListConfig
@@ -63,6 +67,8 @@ class _EntityItemsData(BaseModel):
 
 # --- Home Assistant provider ---
 
+_str_list_factory = cast(Callable[[], list[str]], list)
+
 
 @dataclass
 class HomeAssistantShoppingListProvider:
@@ -70,17 +76,14 @@ class HomeAssistantShoppingListProvider:
   no_retry: bool = False
 
   # Accumulators for summary sections this provider controls
-  _duplicates: list[str] = None  # type: ignore[assignment]
-  _out_of_stock: list[str] = None  # type: ignore[assignment]
-
-  def __post_init__(self) -> None:
-    self._duplicates = []
-    self._out_of_stock = []
+  _duplicates: list[str] = field(default_factory=_str_list_factory, init=False)
+  _out_of_stock: list[str] = field(default_factory=_str_list_factory, init=False)
+  _lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False)
 
   # --- Public API ---
 
-  def get_uncompleted_items(self) -> list[ShoppingListItem]:
-    items = self._get_items()
+  async def get_uncompleted_items(self) -> list[ShoppingListItem]:
+    items = await self._get_items()
     ret: list[ShoppingListItem] = []
     seen: set[str] = set()
     for it in items:
@@ -96,7 +99,7 @@ class HomeAssistantShoppingListProvider:
       norm = base.strip().lower()
       if norm in seen:
         # Tag as duplicate and skip processing
-        self._tag_dupe(it.uid, raw_name)
+        await self._tag_dupe(it.uid, raw_name)
         continue
       seen.add(norm)
       if not it.uid:
@@ -104,36 +107,37 @@ class HomeAssistantShoppingListProvider:
       ret.append(ShoppingListItem(id=it.uid, name=base, status=ItemStatus.NEEDS_ACTION))
     return ret
 
-  def mark_completed(self, item_id: str, result: ItemAddedResult) -> None:
+  async def mark_completed(self, item_id: str, result: ItemAddedResult) -> None:
     # Strip error tags, keep quantity text if present in name (result has canonical item_name)
-    current = self._get_item_name(item_id)
+    current = await self._get_item_name(item_id)
     base = self._strip_tags(current)
-    self._update_item(item_id, {"name": base, "status": "completed"})
+    await self._update_item(item_id, {"name": base, "status": "completed"})
 
-  def mark_not_found(self, item_id: str, result: ItemNotFoundResult) -> None:
-    current = self._get_item_name(item_id)
+  async def mark_not_found(self, item_id: str, result: ItemNotFoundResult) -> None:
+    current = await self._get_item_name(item_id)
     base = self._strip_tags(current)
     name = self._apply_tags(base, {"#not_found"})
-    self._update_item(item_id, {"name": name, "status": "needs_action"})
+    await self._update_item(item_id, {"name": name, "status": "needs_action"})
 
-  def mark_out_of_stock(self, item_id: str) -> None:
-    current = self._get_item_name(item_id)
+  async def mark_out_of_stock(self, item_id: str) -> None:
+    current = await self._get_item_name(item_id)
     base = self._strip_tags(current)
     name = self._apply_tags(base, {"#out_of_stock"})
-    self._update_item(item_id, {"name": name, "status": "needs_action"})
-    self._out_of_stock.append(base)
+    await self._update_item(item_id, {"name": name, "status": "needs_action"})
+    async with self._lock:
+      self._out_of_stock.append(base)
 
-  def mark_failed(self, item_id: str, error: str) -> None:
-    current = self._get_item_name(item_id)
+  async def mark_failed(self, item_id: str, error: str) -> None:
+    current = await self._get_item_name(item_id)
     base = self._strip_tags(current)
     # '#failed' is exclusive; only apply if no other error tags present
     if self._has_any_tag(current):
       # Already has another error tag; do not apply failed
       return
     name = self._apply_tags(base, {"#failed"})
-    self._update_item(item_id, {"name": name, "status": "needs_action"})
+    await self._update_item(item_id, {"name": name, "status": "needs_action"})
 
-  def send_summary(self, summary: ShoppingSummary) -> None:
+  async def send_summary(self, summary: ShoppingSummary) -> None:
     # Convert to markdown and send persistent notification
     md = self._format_summary(summary)
     # Print to stdout if anything happened; else short note
@@ -149,7 +153,7 @@ class HomeAssistantShoppingListProvider:
     else:
       print("No shopping activity — nothing to report.")
     try:
-      self._notify_persistent(md)
+      await self._notify_persistent(md)
     except Exception:
       # Minimal logging only
       pass
@@ -162,42 +166,34 @@ class HomeAssistantShoppingListProvider:
       "Content-Type": "application/json",
     }
 
-  def _get_items(self) -> list[_HomeAssistantItemModel]:
-    import json
-    import urllib.request
-    from urllib.error import HTTPError, URLError
-
+  async def _get_items(self) -> list[_HomeAssistantItemModel]:
     url = f"{self.config.url}/api/services/todo/get_items?return_response"
     payload = {"entity_id": self.config.entity_id}
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=self._headers(), method="POST")
     try:
-      with urllib.request.urlopen(req, timeout=5) as resp:  # type: ignore[reportUnknownMemberType]
-        raw_data = json.loads(resp.read().decode("utf-8"))
+      async with httpx.AsyncClient(timeout=5.0) as client:
+        resp = await client.post(url, json=payload, headers=self._headers())
+        resp.raise_for_status()
+        raw_data = resp.json()
         response = _TodoGetItemsResponse.model_validate(raw_data)
         entity_data = response.service_response.get(self.config.entity_id)
         if entity_data is None:
           return []
         return entity_data.items
-    except HTTPError as e:
-      if e.code in (401, 403):
-        raise RuntimeError(f"Home Assistant auth failed: HTTP {e.code}") from e
+    except httpx.HTTPStatusError as e:
+      if e.response.status_code in (401, 403):
+        raise RuntimeError(f"Home Assistant auth failed: HTTP {e.response.status_code}") from e
       return []
-    except (URLError, ValidationError):
+    except (httpx.RequestError, ValidationError):
       return []
 
-  def _get_item_name(self, item_id: str) -> str:
-    items = self._get_items()
+  async def _get_item_name(self, item_id: str) -> str:
+    items = await self._get_items()
     for it in items:
       if it.uid == item_id:
         return it.summary
     return ""
 
-  def _update_item(self, item_uid: str, fields: dict[str, object]) -> None:
-    import json
-    import urllib.request
-    from urllib.error import HTTPError
-
+  async def _update_item(self, item_uid: str, fields: dict[str, object]) -> None:
     url = f"{self.config.url}/api/services/todo/update_item"
 
     # Map old fields to new service parameters
@@ -208,35 +204,25 @@ class HomeAssistantShoppingListProvider:
     if "status" in fields:
       payload["status"] = fields["status"]
 
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=self._headers(), method="POST")
     try:
-      with urllib.request.urlopen(req, timeout=5):  # type: ignore[reportUnknownMemberType]
-        pass
-    except HTTPError as e:
-      if e.code in (401, 403):
-        raise RuntimeError(f"Home Assistant auth failed: HTTP {e.code}") from e
+      async with httpx.AsyncClient(timeout=5.0) as client:
+        resp = await client.post(url, json=payload, headers=self._headers())
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+      if e.response.status_code in (401, 403):
+        raise RuntimeError(f"Home Assistant auth failed: HTTP {e.response.status_code}") from e
       # Minimal logging; ignore other errors
 
-  def _notify_persistent(self, markdown: str) -> None:
-    import json
-    import urllib.request
-    from urllib.error import HTTPError
-
+  async def _notify_persistent(self, markdown: str) -> None:
     url = f"{self.config.url}/api/services/persistent_notification/create"
     payload = {"title": "Grocery Shopping Complete", "message": markdown}
-    req = urllib.request.Request(
-      url,
-      data=json.dumps(payload).encode("utf-8"),
-      headers=self._headers(),
-      method="POST",
-    )
     try:
-      with urllib.request.urlopen(req, timeout=5):  # type: ignore[reportUnknownMemberType]
-        pass
-    except HTTPError as e:
-      if e.code in (401, 403):
-        raise RuntimeError(f"Home Assistant auth failed: HTTP {e.code}") from e
+      async with httpx.AsyncClient(timeout=5.0) as client:
+        resp = await client.post(url, json=payload, headers=self._headers())
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+      if e.response.status_code in (401, 403):
+        raise RuntimeError(f"Home Assistant auth failed: HTTP {e.response.status_code}") from e
 
   _TAG_ORDER: tuple[str, ...] = ("#not_found", "#out_of_stock", "#failed", "#dupe")
 
@@ -256,13 +242,14 @@ class HomeAssistantShoppingListProvider:
       return base
     return f"{base} {' '.join(ordered)}"
 
-  def _tag_dupe(self, item_id: str, current_name: str) -> None:
+  async def _tag_dupe(self, item_id: str, current_name: str) -> None:
     if not item_id:
       return
     base = self._strip_tags(current_name)
     tagged = self._apply_tags(base, {"#dupe"})
-    self._update_item(item_id, {"name": tagged, "status": "needs_action"})
-    self._duplicates.append(base)
+    await self._update_item(item_id, {"name": tagged, "status": "needs_action"})
+    async with self._lock:
+      self._duplicates.append(base)
 
   def _parse_quantity(self, name: str) -> tuple[str, int]:
     import re

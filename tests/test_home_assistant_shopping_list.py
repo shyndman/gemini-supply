@@ -43,7 +43,9 @@ def provider_no_retry() -> HomeAssistantShoppingListProvider:
 class TestGetUncompletedItems:
   """Tests for get_uncompleted_items method."""
 
-  def test_returns_only_incomplete_items(self, provider: HomeAssistantShoppingListProvider) -> None:
+  async def test_returns_only_incomplete_items(
+    self, provider: HomeAssistantShoppingListProvider
+  ) -> None:
     """Should only return items where complete=False."""
     with patch.object(provider, "_get_items") as mock_get:
       from gemini_supply.grocery.home_assistant_shopping_list import _HomeAssistantItemModel
@@ -54,13 +56,13 @@ class TestGetUncompletedItems:
         _HomeAssistantItemModel(uid="3", summary="Bread", status="needs_action"),
       ]
 
-      items = provider.get_uncompleted_items()
+      items = await provider.get_uncompleted_items()
 
       assert len(items) == 2
       assert items[0].name == "Milk"
       assert items[1].name == "Bread"
 
-  def test_filters_empty_names(self, provider: HomeAssistantShoppingListProvider) -> None:
+  async def test_filters_empty_names(self, provider: HomeAssistantShoppingListProvider) -> None:
     """Should skip items with empty or whitespace-only names."""
     with patch.object(provider, "_get_items") as mock_get:
       from gemini_supply.grocery.home_assistant_shopping_list import _HomeAssistantItemModel
@@ -71,12 +73,14 @@ class TestGetUncompletedItems:
         _HomeAssistantItemModel(uid="3", summary="Milk", status="needs_action"),
       ]
 
-      items = provider.get_uncompleted_items()
+      items = await provider.get_uncompleted_items()
 
       assert len(items) == 1
       assert items[0].name == "Milk"
 
-  def test_filters_items_without_ids(self, provider: HomeAssistantShoppingListProvider) -> None:
+  async def test_filters_items_without_ids(
+    self, provider: HomeAssistantShoppingListProvider
+  ) -> None:
     """Should skip items that don't have an ID."""
     with patch.object(provider, "_get_items") as mock_get:
       from gemini_supply.grocery.home_assistant_shopping_list import _HomeAssistantItemModel
@@ -86,12 +90,12 @@ class TestGetUncompletedItems:
         _HomeAssistantItemModel(uid="2", summary="Eggs", status="needs_action"),
       ]
 
-      items = provider.get_uncompleted_items()
+      items = await provider.get_uncompleted_items()
 
       assert len(items) == 1
       assert items[0].name == "Eggs"
 
-  def test_deduplicates_items_case_insensitive(
+  async def test_deduplicates_items_case_insensitive(
     self, provider: HomeAssistantShoppingListProvider
   ) -> None:
     """Should detect duplicates case-insensitively and tag them."""
@@ -107,7 +111,7 @@ class TestGetUncompletedItems:
         _HomeAssistantItemModel(uid="3", summary="milk", status="needs_action"),
       ]
 
-      items = provider.get_uncompleted_items()
+      items = await provider.get_uncompleted_items()
 
       # Only first occurrence should be returned
       assert len(items) == 1
@@ -118,7 +122,9 @@ class TestGetUncompletedItems:
       mock_update.assert_any_call("2", {"name": "MILK #dupe", "status": "needs_action"})
       mock_update.assert_any_call("3", {"name": "milk #dupe", "status": "needs_action"})
 
-  def test_strips_tags_from_item_names(self, provider: HomeAssistantShoppingListProvider) -> None:
+  async def test_strips_tags_from_item_names(
+    self, provider: HomeAssistantShoppingListProvider
+  ) -> None:
     """Should strip known tags from item names."""
     with patch.object(provider, "_get_items") as mock_get:
       from gemini_supply.grocery.home_assistant_shopping_list import _HomeAssistantItemModel
@@ -129,14 +135,14 @@ class TestGetUncompletedItems:
         _HomeAssistantItemModel(uid="3", summary="Bread #failed", status="needs_action"),
       ]
 
-      items = provider.get_uncompleted_items()
+      items = await provider.get_uncompleted_items()
 
       assert len(items) == 3
       assert items[0].name == "Milk"
       assert items[1].name == "Eggs"
       assert items[2].name == "Bread"
 
-  def test_filters_tagged_items_when_no_retry(
+  async def test_filters_tagged_items_when_no_retry(
     self, provider_no_retry: HomeAssistantShoppingListProvider
   ) -> None:
     """Should skip items with any tag when no_retry=True."""
@@ -149,12 +155,12 @@ class TestGetUncompletedItems:
         _HomeAssistantItemModel(uid="3", summary="Bread #failed", status="needs_action"),
       ]
 
-      items = provider_no_retry.get_uncompleted_items()
+      items = await provider_no_retry.get_uncompleted_items()
 
       assert len(items) == 1
       assert items[0].name == "Milk"
 
-  def test_all_items_have_needs_action_status(
+  async def test_all_items_have_needs_action_status(
     self, provider: HomeAssistantShoppingListProvider
   ) -> None:
     """All returned items should have NEEDS_ACTION status."""
@@ -166,7 +172,7 @@ class TestGetUncompletedItems:
         _HomeAssistantItemModel(uid="2", summary="Eggs", status="needs_action"),
       ]
 
-      items = provider.get_uncompleted_items()
+      items = await provider.get_uncompleted_items()
 
       assert all(item.status == ItemStatus.NEEDS_ACTION for item in items)
 
@@ -174,7 +180,7 @@ class TestGetUncompletedItems:
 class TestMarkCompleted:
   """Tests for mark_completed method."""
 
-  def test_strips_tags_and_marks_complete(
+  async def test_strips_tags_and_marks_complete(
     self, provider: HomeAssistantShoppingListProvider
   ) -> None:
     """Should strip tags and set complete=True."""
@@ -185,11 +191,11 @@ class TestMarkCompleted:
       mock_get_name.return_value = "Milk #not_found"
       result = ItemAddedResult(item_name="Milk", quantity=1, price_text="$4.99")
 
-      provider.mark_completed("item-123", result)
+      await provider.mark_completed("item-123", result)
 
       mock_update.assert_called_once_with("item-123", {"name": "Milk", "status": "completed"})
 
-  def test_preserves_base_name(self, provider: HomeAssistantShoppingListProvider) -> None:
+  async def test_preserves_base_name(self, provider: HomeAssistantShoppingListProvider) -> None:
     """Should preserve the original base name without tags."""
     with (
       patch.object(provider, "_get_item_name") as mock_get_name,
@@ -198,7 +204,7 @@ class TestMarkCompleted:
       mock_get_name.return_value = "x3 Apples"
       result = ItemAddedResult(item_name="Apples", quantity=3, price_text="$2.99")
 
-      provider.mark_completed("item-123", result)
+      await provider.mark_completed("item-123", result)
 
       mock_update.assert_called_once_with("item-123", {"name": "x3 Apples", "status": "completed"})
 
@@ -206,7 +212,7 @@ class TestMarkCompleted:
 class TestMarkNotFound:
   """Tests for mark_not_found method."""
 
-  def test_strips_tags_and_adds_not_found_tag(
+  async def test_strips_tags_and_adds_not_found_tag(
     self, provider: HomeAssistantShoppingListProvider
   ) -> None:
     """Should strip existing tags and add #not_found tag."""
@@ -217,13 +223,15 @@ class TestMarkNotFound:
       mock_get_name.return_value = "Milk #failed"
       result = ItemNotFoundResult(item_name="Milk", explanation="No matching products")
 
-      provider.mark_not_found("item-123", result)
+      await provider.mark_not_found("item-123", result)
 
       mock_update.assert_called_once_with(
         "item-123", {"name": "Milk #not_found", "status": "needs_action"}
       )
 
-  def test_keeps_status_needs_action(self, provider: HomeAssistantShoppingListProvider) -> None:
+  async def test_keeps_status_needs_action(
+    self, provider: HomeAssistantShoppingListProvider
+  ) -> None:
     """Should set status=needs_action."""
     with (
       patch.object(provider, "_get_item_name") as mock_get_name,
@@ -232,7 +240,7 @@ class TestMarkNotFound:
       mock_get_name.return_value = "Milk"
       result = ItemNotFoundResult(item_name="Milk", explanation="No matching products")
 
-      provider.mark_not_found("item-123", result)
+      await provider.mark_not_found("item-123", result)
 
       call_args = mock_update.call_args[0][1]
       assert call_args["status"] == "needs_action"
@@ -241,7 +249,7 @@ class TestMarkNotFound:
 class TestMarkOutOfStock:
   """Tests for mark_out_of_stock method."""
 
-  def test_strips_tags_and_adds_out_of_stock_tag(
+  async def test_strips_tags_and_adds_out_of_stock_tag(
     self, provider: HomeAssistantShoppingListProvider
   ) -> None:
     """Should strip existing tags and add #out_of_stock tag."""
@@ -251,13 +259,13 @@ class TestMarkOutOfStock:
     ):
       mock_get_name.return_value = "Milk"
 
-      provider.mark_out_of_stock("item-123")
+      await provider.mark_out_of_stock("item-123")
 
       mock_update.assert_called_once_with(
         "item-123", {"name": "Milk #out_of_stock", "status": "needs_action"}
       )
 
-  def test_adds_to_internal_out_of_stock_list(
+  async def test_adds_to_internal_out_of_stock_list(
     self, provider: HomeAssistantShoppingListProvider
   ) -> None:
     """Should add base name to internal _out_of_stock list."""
@@ -267,7 +275,7 @@ class TestMarkOutOfStock:
     ):
       mock_get_name.return_value = "Milk"
 
-      provider.mark_out_of_stock("item-123")
+      await provider.mark_out_of_stock("item-123")
 
       assert "Milk" in provider._out_of_stock
 
@@ -275,7 +283,7 @@ class TestMarkOutOfStock:
 class TestMarkFailed:
   """Tests for mark_failed method."""
 
-  def test_adds_failed_tag_when_no_existing_tags(
+  async def test_adds_failed_tag_when_no_existing_tags(
     self, provider: HomeAssistantShoppingListProvider
   ) -> None:
     """Should add #failed tag when no other tags present."""
@@ -285,13 +293,13 @@ class TestMarkFailed:
     ):
       mock_get_name.return_value = "Milk"
 
-      provider.mark_failed("item-123", "Some error")
+      await provider.mark_failed("item-123", "Some error")
 
       mock_update.assert_called_once_with(
         "item-123", {"name": "Milk #failed", "status": "needs_action"}
       )
 
-  def test_does_not_add_failed_tag_when_existing_tags(
+  async def test_does_not_add_failed_tag_when_existing_tags(
     self, provider: HomeAssistantShoppingListProvider
   ) -> None:
     """Should not add #failed tag if another error tag exists."""
@@ -301,7 +309,7 @@ class TestMarkFailed:
     ):
       mock_get_name.return_value = "Milk #not_found"
 
-      provider.mark_failed("item-123", "Some error")
+      await provider.mark_failed("item-123", "Some error")
 
       # Should not be called because item already has a tag
       mock_update.assert_not_called()
@@ -335,7 +343,9 @@ class TestTagHelpers:
     assert provider._has_any_tag("Milk #dupe") is True
     assert provider._has_any_tag("Milk") is False
 
-  def test_apply_tags_in_correct_order(self, provider: HomeAssistantShoppingListProvider) -> None:
+  async def test_apply_tags_in_correct_order(
+    self, provider: HomeAssistantShoppingListProvider
+  ) -> None:
     """Should apply tags in the defined order."""
     assert provider._apply_tags("Milk", {"#failed", "#not_found"}) == "Milk #not_found #failed"
     assert provider._apply_tags("Milk", {"#dupe", "#out_of_stock"}) == "Milk #out_of_stock #dupe"
@@ -516,7 +526,7 @@ class TestSummaryFormatting:
     assert "Milk" in formatted
     assert "Eggs" in formatted
 
-  def test_send_summary_prints_when_activity(
+  async def test_send_summary_prints_when_activity(
     self, provider: HomeAssistantShoppingListProvider, capsys: pytest.CaptureFixture[str]
   ) -> None:
     """Should print summary when there's activity."""
@@ -531,12 +541,12 @@ class TestSummaryFormatting:
         new_defaults=[],
       )
 
-      provider.send_summary(summary)
+      await provider.send_summary(summary)
 
       captured = capsys.readouterr()
       assert "Added to Cart" in captured.out
 
-  def test_send_summary_prints_no_activity_message(
+  async def test_send_summary_prints_no_activity_message(
     self, provider: HomeAssistantShoppingListProvider, capsys: pytest.CaptureFixture[str]
   ) -> None:
     """Should print 'no activity' message when nothing happened."""
@@ -549,12 +559,12 @@ class TestSummaryFormatting:
         new_defaults=[],
       )
 
-      provider.send_summary(summary)
+      await provider.send_summary(summary)
 
       captured = capsys.readouterr()
       assert "No shopping activity" in captured.out
 
-  def test_send_summary_calls_notify_persistent(
+  async def test_send_summary_calls_notify_persistent(
     self, provider: HomeAssistantShoppingListProvider
   ) -> None:
     """Should call _notify_persistent with formatted markdown."""
@@ -567,7 +577,7 @@ class TestSummaryFormatting:
         new_defaults=[],
       )
 
-      provider.send_summary(summary)
+      await provider.send_summary(summary)
 
       mock_notify.assert_called_once()
       call_args = mock_notify.call_args[0][0]

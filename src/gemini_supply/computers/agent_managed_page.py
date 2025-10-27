@@ -1,4 +1,3 @@
-import asyncio
 from collections.abc import Callable
 from types import TracebackType
 from typing import Awaitable, Literal
@@ -184,7 +183,6 @@ class AgentManagedPage(Computer):
 
   async def current_state(self) -> EnvState:
     await self._page.wait_for_load_state()
-    await asyncio.sleep(0.5)
     if not await self._is_authenticated_delegate(self._page):
       raise AuthExpiredError("Authentication expired or missing — login required")
     screenshot_bytes = await self._page.screenshot(type="png", full_page=False)

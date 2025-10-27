@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
-from typing import Any, cast
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, cast
 
+import aiofiles
 import yaml  # type: ignore[reportMissingImports]
 from pydantic import ValidationError
 
@@ -45,7 +46,8 @@ class PreferenceStore:
   async def _read(self) -> dict[str, PreferenceRecord]:
     if not self._path.exists():
       return {}
-    raw_text = self._path.read_text(encoding="utf-8")
+    async with aiofiles.open(self._path, "r", encoding="utf-8") as f:
+      raw_text = await f.read()
     loaded_raw: object = yaml.safe_load(raw_text)
     if loaded_raw is None:
       return {}
@@ -65,8 +67,9 @@ class PreferenceStore:
 
   async def _write(self, data: Mapping[str, PreferenceRecord]) -> None:
     self._path.parent.mkdir(parents=True, exist_ok=True)
-    with self._path.open("w", encoding="utf-8") as handle:
-      serialized = {
-        key: value.model_dump(mode="python", exclude_none=True) for key, value in data.items()
-      }
-      yaml.safe_dump(serialized, handle, sort_keys=True, allow_unicode=True)
+    serialized = {
+      key: value.model_dump(mode="python", exclude_none=True) for key, value in data.items()
+    }
+    yaml_text = yaml.safe_dump(serialized, sort_keys=True, allow_unicode=True)
+    async with aiofiles.open(self._path, "w", encoding="utf-8") as handle:
+      await handle.write(yaml_text)

@@ -121,7 +121,7 @@ async def run_shopping(
   finally:
     await preferences.stop()
 
-  provider.send_summary(results.to_summary())
+  await provider.send_summary(results.to_summary())
   return 0
 
 
@@ -228,7 +228,7 @@ async def _run_shopping_flow(
   termcolor.cprint(f"Using profile: {profile_dir}", color="cyan")
   camoufox_exec = resolve_camoufox_exec()
 
-  items = provider.get_uncompleted_items()
+  items = await provider.get_uncompleted_items()
   if not items:
     termcolor.cprint("No uncompleted items found.", color="yellow")
     return ShoppingResults()
@@ -456,7 +456,7 @@ async def _handle_processing_exception(
   prefix = f"[{agent_label}] " if agent_label else ""
   termcolor.cprint(f"{prefix}Exception while shopping item:", color="red")
   print(f"{prefix}{tb}", file=sys.stderr)
-  provider.mark_failed(item.id, f"exception: {exc}\n{tb}")
+  await provider.mark_failed(item.id, f"exception: {exc}\n{tb}")
 
 
 def _is_specific_request(normalized: NormalizedItem) -> bool:
@@ -530,12 +530,14 @@ async def _shop_single_item_in_tab(
       while status == LoopStatus.CONTINUE:
         turns += 1
         if turns > settings.max_turns:
-          shopping_list_provider.mark_failed(item.id, f"max_turns_exceeded: {settings.max_turns}")
+          await shopping_list_provider.mark_failed(
+            item.id, f"max_turns_exceeded: {settings.max_turns}"
+          )
           termcolor.cprint(f"[{agent_label}] Max turns exceeded; marking failed.", color="yellow")
           return FailedOutcome(error=f"max_turns_exceeded: {settings.max_turns}")
 
         if time.monotonic() - start > budget_seconds:
-          shopping_list_provider.mark_failed(
+          await shopping_list_provider.mark_failed(
             item.id, f"time_budget_exceeded: {settings.time_budget}"
           )
           termcolor.cprint(
@@ -571,7 +573,7 @@ async def _shop_single_item_in_tab(
             return NotFoundOutcome(result=result)
 
       if not needs_retry:
-        shopping_list_provider.mark_failed(item.id, "completed_without_reporting")
+        await shopping_list_provider.mark_failed(item.id, "completed_without_reporting")
         return FailedOutcome(error="completed_without_reporting")
     finally:
       try:
@@ -588,7 +590,7 @@ async def _shop_single_item_in_tab(
       try:
         await state.ensure_pre_shop_auth(auth_manager)
       except Exception as auth_exc:  # noqa: BLE001
-        shopping_list_provider.mark_failed(item.id, f"auth_recovery_failed: {auth_exc}")
+        await shopping_list_provider.mark_failed(item.id, f"auth_recovery_failed: {auth_exc}")
         termcolor.cprint(
           f"[{agent_label}] Authentication recovery failed ({auth_exc}); giving up on item.",
           color="red",
@@ -596,7 +598,7 @@ async def _shop_single_item_in_tab(
         return FailedOutcome(error=f"auth_recovery_failed: {auth_exc}")
       continue
 
-  shopping_list_provider.mark_failed(item.id, "auth_recovery_failed")
+  await shopping_list_provider.mark_failed(item.id, "auth_recovery_failed")
   termcolor.cprint(
     f"[{agent_label}] Authentication recovery exhausted; marking item as failed.",
     color="red",
