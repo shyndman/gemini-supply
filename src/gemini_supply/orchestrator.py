@@ -581,7 +581,7 @@ async def _shop_single_item_in_tab(
       except Exception:
         pass
       if agent is not None:
-        agent.close()
+        await agent.close()
     if needs_retry:
       termcolor.cprint(
         f"[{agent_label}] Authentication refreshed; retrying item from the beginning.",

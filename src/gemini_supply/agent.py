@@ -246,20 +246,6 @@ class BrowserAgent:
       case _:
         raise ValueError(f"Unsupported function: {action.name}")
 
-  def _generate_content_sync(
-    self,
-    *,
-    model: str,
-    contents: list[Content],
-    config: GenerateContentConfig,
-  ) -> GenerateContentResponse:
-    response = self._client.models.generate_content(
-      model=model,
-      contents=cast(ContentListUnionDict, contents),
-      config=config,
-    )
-    return cast(GenerateContentResponse, response)
-
   async def get_model_response(
     self, max_retries: int = 5, base_delay_s: int = 1
   ) -> GenerateContentResponse:
@@ -269,14 +255,13 @@ class BrowserAgent:
       try:
         assert self._client is not None
         assert self._generate_content_config is not None
-        # Run the synchronous SDK call in a worker thread so we don't block the event loop
-        response = await asyncio.to_thread(
-          self._generate_content_sync,
+        # Use async client for native async/await support (uses aiohttp internally)
+        response = await self._client.aio.models.generate_content(
           model=self._model_name,
-          contents=self._contents,
+          contents=cast(ContentListUnionDict, self._contents),
           config=self._generate_content_config,
         )
-        return response  # Return response on success
+        return cast(GenerateContentResponse, response)  # Return response on success
       except Exception as e:
         print(self._with_agent_prefix(str(e)))
         if attempt < max_retries - 1:
@@ -490,15 +475,16 @@ class BrowserAgent:
     while status == LoopStatus.CONTINUE:
       status = await self.run_one_iteration()
 
-  def close(self) -> None:
+  async def close(self) -> None:
     """Close the underlying Gemini client if initialized."""
+    try:
+      await self._client.aio.aclose()
+    except Exception:
+      pass
     try:
       self._client.close()
     except Exception:
       pass
-    finally:
-      # Keep the reference for type safety; the client is closed.
-      ...
 
   def denormalize_x(self, x: int | float) -> int:
     """Denormalizes x coordinate from 1000-based system to actual screen width."""
