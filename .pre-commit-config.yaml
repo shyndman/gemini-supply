@@ -10,6 +10,7 @@ repos:
     rev: 0.9.3
     hooks:
       - id: uv-sync
+        name: Sync dependencies (uv sync)
 
   - repo: https://github.com/astral-sh/uv-pre-commit
     # uv version.
@@ -17,6 +18,7 @@ repos:
     hooks:
       # Update the uv lockfile
       - id: uv-lock
+        name: Ensure a current lockfile (uv lock)
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
@@ -24,9 +26,11 @@ repos:
     hooks:
       # Run the linter.
       - id: ruff-check
+        name: Lint the codebase (ruff check --fix)
         args: [ --fix ]
       # Run the formatter.
       - id: ruff-format
+        name: Format the codebase (ruff format)
 
   - repo: https://github.com/shyndman/ai-deroot-pre-commit
     rev: v0.0.9
@@ -46,6 +50,6 @@ repos:
         language: python
         pass_filenames: false
       - id: ty
-        name: ty check
+        name: Type-check the codebase (ty check)
         entry: uv run ty check
         language: python
