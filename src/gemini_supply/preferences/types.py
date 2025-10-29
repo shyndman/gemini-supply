@@ -6,6 +6,7 @@ from pydantic import (
   AfterValidator,
   BaseModel,
   Field,
+  RootModel,
   field_validator,
   model_validator,
 )
@@ -60,6 +61,29 @@ class PreferenceMetadata(BaseModel):
 class PreferenceRecord(BaseModel):
   product_name: NonEmptyString
   metadata: PreferenceMetadata = Field(default_factory=PreferenceMetadata)
+
+
+class PreferenceStoreData(RootModel[dict[str, PreferenceRecord]]):
+  """
+  Represents the entire YAML preference store file structure.
+
+  The root is a dictionary mapping canonical item keys (e.g., "milk", "cheese")
+  to their corresponding preference records.
+  """
+
+  root: dict[str, PreferenceRecord]
+
+  def get(self, canonical_key: str) -> PreferenceRecord | None:
+    """Get a preference record by canonical key."""
+    return self.root.get(canonical_key)
+
+  def set(self, canonical_key: str, record: PreferenceRecord) -> None:
+    """Set a preference record by canonical key."""
+    self.root[canonical_key] = record
+
+  def to_dict(self) -> dict[str, PreferenceRecord]:
+    """Get the underlying dictionary."""
+    return self.root
 
 
 class _PartialNormalizedItem(BaseModel):

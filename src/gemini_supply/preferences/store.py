@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, cast
 
 import aiofiles
 import yaml  # type: ignore[reportMissingImports]
 from pydantic import ValidationError
 
-from .types import PreferenceMetadata, PreferenceRecord
+from .types import PreferenceMetadata, PreferenceRecord, PreferenceStoreData
 
 
 class PreferenceStore:
@@ -51,25 +49,16 @@ class PreferenceStore:
     loaded_raw: object = yaml.safe_load(raw_text)
     if loaded_raw is None:
       return {}
-    if not isinstance(loaded_raw, Mapping):
-      return {}
-    loaded_mapping = cast(Mapping[str, Any], loaded_raw)
-    result: dict[str, PreferenceRecord] = {}
-    for key_obj, value_obj in loaded_mapping.items():
-      if not isinstance(key_obj, str):
-        continue
-      try:
-        record = PreferenceRecord.model_validate(value_obj)
-      except ValidationError:
-        continue
-      result[key_obj] = record
-    return result
+    try:
+      store_data = PreferenceStoreData.model_validate(loaded_raw)
+      return store_data.to_dict()
+    except ValidationError as e:
+      raise ValueError(f"Failed to parse preferences file at {self._path}: {e}") from e
 
-  async def _write(self, data: Mapping[str, PreferenceRecord]) -> None:
+  async def _write(self, data: dict[str, PreferenceRecord]) -> None:
     self._path.parent.mkdir(parents=True, exist_ok=True)
-    serialized = {
-      key: value.model_dump(mode="python", exclude_none=True) for key, value in data.items()
-    }
+    store_data = PreferenceStoreData(root=data)
+    serialized = store_data.model_dump(mode="python", exclude_none=True)
     yaml_text = yaml.safe_dump(serialized, sort_keys=True, allow_unicode=True)
     async with aiofiles.open(self._path, "w", encoding="utf-8") as handle:
       await handle.write(yaml_text)
