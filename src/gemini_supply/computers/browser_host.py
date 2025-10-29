@@ -314,15 +314,23 @@ class CamoufoxHost:
   @asynccontextmanager
   async def unrestricted(self) -> AsyncIterator[None]:
     if not self._enforce_restrictions or not self._restrictions_active:
+      termcolor.cprint(
+        "[unrestricted] Restrictions not enforced or already inactive; skipping unroute.",
+        "yellow",
+      )
       yield
       return
     context = self.context
+    termcolor.cprint("[unrestricted] Removing route restrictions.", "cyan")
     await context.unroute("**/*", self._route_interceptor)
     self._restrictions_active = False
+    termcolor.cprint("[unrestricted] Restrictions removed; proceeding unrestricted.", "green")
     try:
       yield
     finally:
       try:
+        termcolor.cprint("[unrestricted] Re-enabling route restrictions.", "cyan")
         await context.route("**/*", self._route_interceptor)
+        termcolor.cprint("[unrestricted] Restrictions re-enabled.", "green")
       finally:
         self._restrictions_active = True

@@ -64,7 +64,6 @@ async def _perform_login(host: CamoufoxHost) -> None:
   credentials = _resolve_credentials()
   page = await host.new_page()
   try:
-    await page.wait_for_load_state("domcontentloaded")
     await _accept_cookies(page)
     await _open_promotions(page)
     await page.wait_for_load_state()
@@ -137,7 +136,7 @@ async def _accept_cookies(page: Page) -> None:
 
 
 async def _open_promotions(page: Page) -> None:
-  await page.locator('a[href="/en/flyer"]').click()
+  await page.locator('.header-navs a[href="/en/flyer"]').click()
   await page.wait_for_load_state()
 
 
