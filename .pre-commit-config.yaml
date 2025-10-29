@@ -46,7 +46,7 @@ repos:
     hooks:
       - id: forbid-path-sourced-dependencies
         name: Prevent path sourced dependencies in pyproject.toml
-        entry: python scripts/pre-commit/check_no_path_dependencies.py
+        entry: scripts/pre-commit/check_no_path_dependencies.py
         language: python
         pass_filenames: false
       - id: ty
