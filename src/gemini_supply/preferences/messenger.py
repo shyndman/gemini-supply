@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TypeAlias, cast
 
+from libsh import get_logger
 from pydantic.types import NegativeInt
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.constants import ParseMode
@@ -23,6 +24,8 @@ from telegram.ext import (
 from telegram.helpers import escape_markdown
 
 from .types import ProductChoice, ProductChoiceRequest, ProductDecision
+
+_logger = get_logger(__name__)
 
 
 @dataclass(slots=True)
@@ -393,8 +396,10 @@ class TelegramPreferenceMessenger:
           message_id=pending.message_id,
           reply_markup=None,
         )
+      # NOTE: While this may seem too broad, I can't think of a type of exception that I would want
+      # to handle differently than this at this point.
       except Exception:
-        pass
+        _logger.exception("Failed to edit handled bot message")
 
   async def _resolve_pending_with_feedback(
     self,
@@ -409,19 +414,21 @@ class TelegramPreferenceMessenger:
     if not pending.future.done():
       pending.future.set_result(result)
     app = self._application
-    if app is not None:
-      try:
-        # Edit the original message to append feedback and remove buttons
-        updated_text = f"{original_text}\n\n{feedback}"
-        await app.bot.edit_message_text(
-          chat_id=self._settings.chat_id,
-          message_id=message_id,
-          text=updated_text,
-          parse_mode=ParseMode.MARKDOWN_V2,
-          reply_markup=None,
-        )
-      except Exception:
-        pass
+    if app is None:
+      return
+
+    try:
+      # Edit the original message to append feedback and remove buttons
+      updated_text = f"{original_text}\n\n{feedback}"
+      await app.bot.edit_message_text(
+        chat_id=self._settings.chat_id,
+        message_id=message_id,
+        text=updated_text,
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=None,
+      )
+    except Exception:
+      _logger.exception("Failed to edit handled bot message")
 
   def _parse_selection_text(self, text: str, choice_count: int) -> tuple[int, bool] | None:
     collapsed = text.strip()
