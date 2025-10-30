@@ -75,9 +75,6 @@ async def _perform_login(host: CamoufoxHost) -> None:
     await _launch_login_drawer(page)
     await _solve_short_fence(page)
     await _submit_credentials(page, credentials)
-
-    termcolor.cprint("[auth] Submitted credentials; waiting for redirect.", "cyan")
-    await page.wait_for_load_state("networkidle")
   finally:
     await _ensure_keepalive_tab(host, preserve=page)
 
