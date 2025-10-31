@@ -19,6 +19,7 @@ from gemini_supply.preferences import (
   PreferenceItemSession,
   PreferenceRecord,
   PreferenceStore,
+  PreferenceOverrideRequested,
   ProductChoice,
   ProductChoiceRequest,
   ProductDecision,
@@ -54,6 +55,20 @@ class _FakeMessenger:
       selected_index=1,
       selected_choice=None,
       make_default=self._make_default,
+    )
+
+
+class _AlternateMessenger:
+  def __init__(self, alternate_text: str) -> None:
+    self._alternate_text = alternate_text
+
+  async def request_choice(self, request: ProductChoiceRequest) -> ProductDecision:
+    _ = request
+    return ProductDecision(
+      decision="alternate",
+      selected_index=None,
+      selected_choice=None,
+      alternate_text=self._alternate_text,
     )
 
 
@@ -122,6 +137,31 @@ async def test_record_success_skips_without_default_toggle() -> None:
   )
   await session.record_success(_added_result())
   assert store.saved == {}
+
+
+@pytest.mark.asyncio
+async def test_request_choice_raises_override_on_alternate() -> None:
+  store = _FakeStore()
+  coordinator = PreferenceCoordinator(
+    normalizer=cast(NormalizationAgent, _DummyNormalizer()),
+    store=cast(PreferenceStore, store),
+    messenger=cast(TelegramPreferenceMessenger, _AlternateMessenger("oat milk 2L")),
+  )
+  session = PreferenceItemSession(coordinator, _normalized_item())
+  with pytest.raises(PreferenceOverrideRequested) as exc_info:
+    await session.request_choice(
+      [
+        ProductChoice(
+          title="Option 1",
+          price_text="$1.00",
+        )
+      ]
+    )
+  override_exc = cast(PreferenceOverrideRequested, exc_info.value)
+  override = override_exc.override
+  assert override.override_text == "oat milk 2L"
+  assert override.previous_text == session.normalized.original_text
+  assert override.supersedes_original is True
 
 
 def test_is_specific_request_detects_brand_and_qualifiers() -> None:

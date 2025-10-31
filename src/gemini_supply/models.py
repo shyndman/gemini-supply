@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Literal
+from typing import Literal, TYPE_CHECKING
 
 from gemini_supply.computers import ScreenSize
 from gemini_supply.config import ConcurrencyConfig
@@ -12,6 +12,9 @@ from gemini_supply.grocery.types import (
 )
 from gemini_supply.preferences import PreferenceItemSession
 from gemini_supply.preferences.types import ProductChoice, ProductDecision
+
+if TYPE_CHECKING:
+  pass
 
 
 def _empty_added_results() -> list[ItemAddedResult]:
@@ -149,7 +152,10 @@ class ShoppingSession:
       choices: Up to 10 structured product options containing title, price, and URL
 
     Returns:
-      ProductDecision describing the user's choice (selected index, alternate text, or skip)
+      ProductDecision describing the user's choice when the user selects an option or skips.
+
+    Raises:
+      PreferenceOverrideRequested: When the user supplies replacement shopping instructions.
     """
     decision = await self.preference_session.request_choice(choices)
 

@@ -49,8 +49,10 @@ from gemini_supply.preferences import (
   NormalizedItem,
   PreferenceCoordinator,
   PreferenceItemSession,
+  PreferenceOverrideRequested,
   PreferenceRecord,
   PreferenceStore,
+  OverrideRequest,
   TelegramPreferenceMessenger,
   TelegramSettings,
 )
@@ -408,38 +410,63 @@ async def _process_item(
     color="white",
   )
 
-  normalized = await preferences.coordinator.normalize_item(item.name)
+  root_normalized = await preferences.coordinator.normalize_item(item.name)
   termcolor.cprint(
-    f"[{agent_label}] Normalized '{item.name}' -> {normalized}",
+    f"[{agent_label}] Normalized '{item.name}' -> {root_normalized}",
     color="yellow",
   )
-  preference_session = preferences.coordinator.create_session(normalized)
-  specific_request = _is_specific_request(normalized)
-  if not specific_request:
-    existing_preference = await preference_session.existing_preference()
+  root_original_text = root_normalized.original_text
+  active_override: OverrideRequest | None = None
+  current_normalized = root_normalized
 
-  try:
-    return await _shop_single_item_in_tab(
-      host=host,
-      item=item,
-      settings=settings,
-      shopping_list_provider=provider,
-      logger=logger,
-      preference_session=preference_session,
-      existing_preference=existing_preference,
-      specific_request=specific_request,
-      auth_manager=auth_manager,
-      state=state,
-      agent_label=agent_label,
+  while True:
+    termcolor.cprint(
+      f"[{agent_label}] Active shopping text: '{current_normalized.original_text}'.",
+      color="yellow",
     )
-  except Exception as exc:  # noqa: BLE001
-    await _handle_processing_exception(
-      item,
-      exc,
-      provider,
-      agent_label=agent_label,
-    )
-    return FailedOutcome(error=str(exc))
+    preference_session = preferences.coordinator.create_session(current_normalized)
+    specific_request = _is_specific_request(current_normalized)
+    existing_preference = None
+    if not specific_request:
+      existing_preference = await preference_session.existing_preference()
+
+    try:
+      return await _shop_single_item_in_tab(
+        host=host,
+        item=item,
+        settings=settings,
+        shopping_list_provider=provider,
+        logger=logger,
+        preference_session=preference_session,
+        existing_preference=existing_preference,
+        specific_request=specific_request,
+        auth_manager=auth_manager,
+        state=state,
+        agent_label=agent_label,
+        override=active_override,
+        original_entry_text=root_original_text,
+      )
+    except PreferenceOverrideRequested as override_exc:
+      active_override = override_exc.override
+      termcolor.cprint(
+        (
+          f"[{agent_label}] User override received. Using new text "
+          f"'{active_override.override_text}' (source={active_override.source})."
+        ),
+        color="cyan",
+      )
+      current_normalized = await preferences.coordinator.normalize_item(
+        active_override.override_text
+      )
+      continue
+    except Exception as exc:  # noqa: BLE001
+      await _handle_processing_exception(
+        item,
+        exc,
+        provider,
+        agent_label=agent_label,
+      )
+      return FailedOutcome(error=str(exc))
 
 
 async def _handle_processing_exception(
@@ -478,17 +505,25 @@ async def _shop_single_item_in_tab(
   auth_manager: AuthManager,
   state: OrchestrationState,
   agent_label: str,
+  override: OverrideRequest | None = None,
+  original_entry_text: str | None = None,
 ) -> Outcome:
+  active_text = preference_session.normalized.original_text
+  display_label = active_text
+  if override is not None:
+    display_label = override.override_text
   termcolor.cprint(
-    f"[{agent_label}] 🛒 Shopping for '{item.name}'.",
+    f"[{agent_label}] 🛒 Shopping for '{display_label}'.",
     color="cyan",
   )
   normalized = preference_session.normalized
   prompt = build_shopper_prompt(
-    item.name,
+    display_label,
     normalized,
     existing_preference,
     specific_request,
+    override_text=override.override_text if override is not None else None,
+    original_list_text=original_entry_text,
   )
   termcolor.cprint(
     f"[{agent_label}] Computer-use prompt:\n{textwrap.indent(prompt, '  ')}",
@@ -500,7 +535,7 @@ async def _shop_single_item_in_tab(
     page = await host.new_agent_managed_page()
     termcolor.cprint(
       f"[{agent_label}] Launching browser agent "
-      f"(attempt {attempt}/{max_attempts}) for '{item.name}'.",
+      f"(attempt {attempt}/{max_attempts}) for '{display_label}'.",
       color="blue",
     )
     agent: BrowserAgent | None = None
@@ -518,7 +553,7 @@ async def _shop_single_item_in_tab(
         query=prompt,
         model_name=settings.model_name,
         logger=logger,
-        output_label=f"{agent_label} | {item.name}",
+        output_label=f"{agent_label} | {display_label}",
         agent_label=agent_label,
         custom_tools=[
           session.report_item_added,

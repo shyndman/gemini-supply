@@ -5,6 +5,7 @@ from decimal import Decimal, InvalidOperation
 
 from gemini_supply.grocery import ItemAddedResult
 
+from .exceptions import OverrideRequest, PreferenceOverrideRequested
 from .messenger import TelegramPreferenceMessenger
 from .normalizer import NormalizationAgent
 from .store import PreferenceStore
@@ -109,6 +110,17 @@ class PreferenceItemSession:
       choices=choices,
     )
     result = await messenger.request_choice(request)
+    if result.decision == "alternate":
+      override_text = result.alternate_text
+      if override_text is None:
+        raise ValueError("alternate decision must include alternate_text")
+      override = OverrideRequest(
+        previous_text=self._normalized.original_text,
+        override_text=override_text,
+        normalized=self._normalized.model_copy(deep=True),
+      )
+      self._make_default_on_success = False
+      raise PreferenceOverrideRequested(override)
     if result.decision == "selected" and result.make_default:
       self._make_default_on_success = True
     else:

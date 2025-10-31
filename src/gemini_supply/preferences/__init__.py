@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .constants import DEFAULT_NAG_STRINGS, DEFAULT_NORMALIZER_MODEL
+from .exceptions import OverrideRequest, PreferenceOverrideRequested
 from .messenger import TelegramPreferenceMessenger, TelegramSettings
 from .normalizer import NormalizationAgent
 from .service import PreferenceCoordinator, PreferenceItemSession
@@ -19,6 +20,9 @@ __all__ = [
   # constants
   "DEFAULT_NAG_STRINGS",
   "DEFAULT_NORMALIZER_MODEL",
+  # exceptions
+  "OverrideRequest",
+  "PreferenceOverrideRequested",
   # messenger
   "TelegramPreferenceMessenger",
   "TelegramSettings",

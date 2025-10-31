@@ -7,15 +7,31 @@ def build_shopper_prompt(
   normalized: NormalizedItem,
   preference: PreferenceRecord | None,
   specific_request: bool,
+  *,
+  override_text: str | None = None,
+  original_list_text: str | None = None,
 ) -> str:
+  authoritative_name = item_name
   if preference is not None:
-    item_name = f"{normalized.quantity}x {preference.product_name}"
+    authoritative_name = f"{normalized.quantity}x {preference.product_name}"
 
-  # Case 2: No preference - search and decide
+  override_paragraph = ""
+  if override_text is not None:
+    original_label = original_list_text or normalized.original_text
+    override_paragraph = textwrap.dedent(
+      f"""
+      UPDATE:
+      - Authoritative request: {override_text}
+      - Original list entry (context only): {original_label}
+      Treat the authoritative request as overriding the original text entirely.
+      """
+    ).strip()
+    override_paragraph = f"{override_paragraph}\n\n"
+
   return textwrap.dedent(f"""
-    Product to add: {item_name}
+    Product to add: {authoritative_name}
 
-    Context:
+    {override_paragraph}Context:
     The "Product to add" is text from a human-written shopping list. Expect:
     - Informal/shorthand writing (e.g., "whole milk" instead of "Organic 3.25% Milk 2L")
     - Missing details (brand, size, quantity units)
@@ -35,7 +51,7 @@ def build_shopper_prompt(
 
     1. Locate the search box at the top of metro.ca
       a. Determine appropriate search terms:
-          - Extract the core product name/type from "{item_name}"
+          - Extract the core product name/type from "{authoritative_name}"
           - Use terms that would appear in a product name or description
           - Examples:
             * "whole milk" → search "whole milk"
@@ -54,12 +70,12 @@ def build_shopper_prompt(
             quality is poor, not because you changed pages
 
       b. SCAN PHASE: Scroll through the first 5-10 results, noting:
-          - Are there exact/close matches to "{item_name}"?
+          - Are there exact/close matches to "{authoritative_name}"?
           - What's the quality distribution? (relevant → somewhat related → irrelevant)
           - Note: Search results often have a "long tail" of poor matches. This is normal.
 
       c. MATCHING CRITERIA (in priority order):
-          i.   Product name contains the key terms from "{item_name}"
+          i.   Product name contains the key terms from "{authoritative_name}"
           ii.  Appropriate category (if milk requested, don't pick cheese)
           iii. Reasonable size/quantity for the item type
           iv.  Well-known brands are safer choices when ambiguous
@@ -93,11 +109,7 @@ def build_shopper_prompt(
           The response will have a 'decision' field:
           * If decision="selected": Locate the product from 'selected_choice' in the search
             results, then proceed to step 3.
-          * If decision="alternate": The user provided new text in 'alternate_text'.
-            Search for this alternate text instead.
-            If the alternate includes a quantity (e.g., "3 whole milk"), use that quantity.
-            Otherwise, keep the original quantity.
-            Start over from step 1 with the new search term.
+          * If decision="skip": Stop work on this item—the tool has already recorded the skip.
 
     3. On the search results page, interact with the chosen product:
 
