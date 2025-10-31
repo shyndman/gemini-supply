@@ -236,10 +236,7 @@ def test_format_option_block_outputs_markdown_lines() -> None:
     # url=HttpUrl("https://example.com/milk"),
   )
   block = messenger._format_choice_block(1, option)
-  assert block[0] == "1. *2L Milk*"
-  assert "Price:" in block[1]
-  assert "$4\\.99" in block[1]
-  assert block[-1].startswith("   [View Product]")
+  assert block == ["1\\. *2L Milk*", "   Price: `$4.99`"]
 
 
 def test_format_acknowledgement_includes_price() -> None:
@@ -254,4 +251,4 @@ def test_format_acknowledgement_includes_price() -> None:
     ),
   )
   assert ack.startswith("✅ Noted *2L Milk*")
-  assert "$4\\.99" in ack
+  assert "`$4.99`" in ack

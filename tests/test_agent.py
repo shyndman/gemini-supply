@@ -209,7 +209,9 @@ async def test_get_model_response_retry_logic(
     MagicMock(content=types.Content(role="model", parts=[types.Part(text="Success")]))
   ]
 
-  with patch.object(agent._client.models, "generate_content") as mock_generate:
+  with patch.object(
+    agent._client.aio.models, "generate_content", new_callable=AsyncMock
+  ) as mock_generate:
     mock_generate.side_effect = [Exception("API Error"), mock_response]
 
     # Should retry and eventually succeed
@@ -231,7 +233,9 @@ async def test_get_model_response_max_retries_exhausted(
     model_name="gemini-2.5-computer-use-preview-10-2025",
   )
 
-  with patch.object(agent._client.models, "generate_content") as mock_generate:
+  with patch.object(
+    agent._client.aio.models, "generate_content", new_callable=AsyncMock
+  ) as mock_generate:
     mock_generate.side_effect = Exception("API Error")
 
     with pytest.raises(Exception, match="API Error"):

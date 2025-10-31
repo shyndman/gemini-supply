@@ -129,7 +129,7 @@ async def test_computer_scroll_document() -> None:
   """Test that scroll_document works for all directions."""
   computer = MockComputer()
   for direction in ["up", "down", "left", "right"]:
-    state = await computer.scroll_document(direction)  # type: ignore[arg-type]
+    state = await computer.scroll_document(direction, magnitude=200)  # type: ignore[arg-type]
     assert isinstance(state, EnvState)
     assert state.url == "https://example.com/scrolled"
 

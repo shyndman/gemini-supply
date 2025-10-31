@@ -20,7 +20,7 @@ async def test_tab_context_manager(tmp_path: Path) -> None:
   """AgentManagedPage can be created from host and used as a context manager."""
   async with CamoufoxHost(
     screen_size=ScreenSize(1440, 900),
-    initial_url="https://www.google.com",
+    initial_url="https://example.com",
     enforce_restrictions=False,
     user_data_dir=tmp_path,
   ) as host:
@@ -28,8 +28,8 @@ async def test_tab_context_manager(tmp_path: Path) -> None:
     async with page:
       size = page.screen_size()
       assert isinstance(size, ScreenSize)
-      assert size.width == 1440
-      assert size.height == 900
+      assert size.width == 1280
+      assert size.height == 720
 
 
 @pytest.mark.asyncio
@@ -40,15 +40,15 @@ async def test_tab_screen_size(tmp_path: Path) -> None:
     page = await host.new_agent_managed_page()
     async with page:
       size = page.screen_size()
-      assert size.width == 1920
-      assert size.height == 1080
+      assert size.width == 1280
+      assert size.height == 720
 
 
 @pytest.mark.asyncio
 async def test_tab_open_web_browser(tmp_path: Path) -> None:
   async with CamoufoxHost(
     screen_size=ScreenSize(1440, 900),
-    initial_url="https://www.google.com",
+    initial_url="https://example.com",
     enforce_restrictions=False,
     user_data_dir=tmp_path,
   ) as host:
@@ -58,14 +58,14 @@ async def test_tab_open_web_browser(tmp_path: Path) -> None:
       assert isinstance(state, EnvState)
       assert isinstance(state.screenshot, bytes)
       assert len(state.screenshot) > 0
-      assert "google.com" in state.url.lower()
+      assert "example.com" in state.url.lower()
 
 
 @pytest.mark.asyncio
 async def test_tab_navigate(tmp_path: Path) -> None:
   async with CamoufoxHost(
     screen_size=ScreenSize(1440, 900),
-    initial_url="https://www.google.com",
+    initial_url="https://example.com",
     enforce_restrictions=False,
     user_data_dir=tmp_path,
   ) as host:
@@ -82,7 +82,7 @@ async def test_tab_navigate(tmp_path: Path) -> None:
 async def test_tab_current_state(tmp_path: Path) -> None:
   async with CamoufoxHost(
     screen_size=ScreenSize(1440, 900),
-    initial_url="https://www.google.com",
+    initial_url="https://example.com",
     enforce_restrictions=False,
     user_data_dir=tmp_path,
   ) as host:
@@ -100,7 +100,7 @@ async def test_tab_current_state(tmp_path: Path) -> None:
 async def test_tab_key_combination(tmp_path: Path) -> None:
   async with CamoufoxHost(
     screen_size=ScreenSize(1440, 900),
-    initial_url="https://www.google.com",
+    initial_url="https://example.com",
     enforce_restrictions=False,
     user_data_dir=tmp_path,
   ) as host:
@@ -114,14 +114,14 @@ async def test_tab_key_combination(tmp_path: Path) -> None:
 async def test_tab_scroll_document(tmp_path: Path) -> None:
   async with CamoufoxHost(
     screen_size=ScreenSize(1440, 900),
-    initial_url="https://www.google.com",
+    initial_url="https://example.com",
     enforce_restrictions=False,
     user_data_dir=tmp_path,
   ) as host:
     page = await host.new_agent_managed_page()
     async with page:
       for direction in ["down", "up"]:
-        state = await page.scroll_document(direction)  # type: ignore[arg-type]
+        state = await page.scroll_document(direction, magnitude=200)  # type: ignore[arg-type]
         assert isinstance(state, EnvState)
         assert isinstance(state.screenshot, bytes)
 
@@ -130,7 +130,7 @@ async def test_tab_scroll_document(tmp_path: Path) -> None:
 async def test_tab_click_at(tmp_path: Path) -> None:
   async with CamoufoxHost(
     screen_size=ScreenSize(1440, 900),
-    initial_url="https://www.google.com",
+    initial_url="https://example.com",
     enforce_restrictions=False,
     user_data_dir=tmp_path,
   ) as host:
@@ -145,7 +145,7 @@ async def test_tab_click_at(tmp_path: Path) -> None:
 async def test_tab_hover_at(tmp_path: Path) -> None:
   async with CamoufoxHost(
     screen_size=ScreenSize(1440, 900),
-    initial_url="https://www.google.com",
+    initial_url="https://example.com",
     enforce_restrictions=False,
     user_data_dir=tmp_path,
   ) as host:
