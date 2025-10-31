@@ -51,6 +51,8 @@ from gemini_supply.preferences import (
   PreferenceItemSession,
   PreferenceRecord,
   PreferenceStore,
+  ProductChoice,
+  ProductDecision,
   TelegramPreferenceMessenger,
   TelegramSettings,
 )
@@ -76,6 +78,14 @@ class AuthEnsurer(Protocol):
 class OrchestrationStage(Enum):
   PRE_SHOP_AUTH = "pre_shop_auth"
   SHOPPING = "shopping"
+
+
+class AlternateOverrideInterrupt(RuntimeError):
+  """Raised to signal that a user provided an override text during product choice."""
+
+  def __init__(self, alternate_text: str) -> None:
+    super().__init__(f"alternate override requested: {alternate_text}")
+    self.alternate_text = alternate_text
 
 
 class OrchestrationState:
@@ -425,6 +435,7 @@ async def _process_item(
       settings=settings,
       shopping_list_provider=provider,
       logger=logger,
+      preferences=preferences,
       preference_session=preference_session,
       existing_preference=existing_preference,
       specific_request=specific_request,
@@ -472,6 +483,7 @@ async def _shop_single_item_in_tab(
   item: ShoppingListItem,
   shopping_list_provider: ShoppingListProvider,
   logger: ActivityLog,
+  preferences: PreferenceResources,
   preference_session: PreferenceItemSession,
   existing_preference: PreferenceRecord | None = None,
   specific_request: bool = False,
@@ -483,24 +495,36 @@ async def _shop_single_item_in_tab(
     f"[{agent_label}] 🛒 Shopping for '{item.name}'.",
     color="cyan",
   )
-  normalized = preference_session.normalized
-  prompt = build_shopper_prompt(
-    item.name,
-    normalized,
-    existing_preference,
-    specific_request,
-  )
-  termcolor.cprint(
-    f"[{agent_label}] Computer-use prompt:\n{textwrap.indent(prompt, '  ')}",
-    color="white",
-  )
+  original_request_text = item.name
+  current_session = preference_session
+  current_specific_request = specific_request
+  current_existing_preference = existing_preference
+  current_item_text = item.name
   max_attempts = 2
-  for attempt in range(1, max_attempts + 1):
+  attempt = 1
+  while attempt <= max_attempts:
     needs_retry = False
+    override_triggered = False
+    override_request_text: str | None = None
+    normalized = current_session.normalized
+    prompt = build_shopper_prompt(
+      current_item_text,
+      normalized,
+      current_existing_preference,
+      current_specific_request,
+      override_text=current_item_text if current_item_text != original_request_text else None,
+      original_request=original_request_text
+      if current_item_text != original_request_text
+      else None,
+    )
+    termcolor.cprint(
+      f"[{agent_label}] Computer-use prompt:\n{textwrap.indent(prompt, '  ')}",
+      color="white",
+    )
     page = await host.new_agent_managed_page()
     termcolor.cprint(
       f"[{agent_label}] Launching browser agent "
-      f"(attempt {attempt}/{max_attempts}) for '{item.name}'.",
+      f"(attempt {attempt}/{max_attempts}) for '{current_item_text}'.",
       color="blue",
     )
     agent: BrowserAgent | None = None
@@ -511,19 +535,39 @@ async def _shop_single_item_in_tab(
       session = ShoppingSession(
         item=item,
         provider=shopping_list_provider,
-        preference_session=preference_session,
+        preference_session=current_session,
       )
+
+      async def request_product_choice(
+        choices: Sequence[ProductChoice],
+      ) -> ProductDecision:
+        nonlocal override_request_text
+        decision = await session.request_product_choice(list(choices))
+        if decision.decision != "alternate":
+          return decision
+        alternate_text = decision.alternate_text
+        if not alternate_text:
+          return ProductDecision(
+            decision="skip",
+            selected_index=None,
+            selected_choice=None,
+            message="User entered an empty override; treating as skip.",
+            make_default=False,
+          )
+        override_request_text = alternate_text
+        raise AlternateOverrideInterrupt(alternate_text)
+
       agent = BrowserAgent(
         browser_computer=page,
         query=prompt,
         model_name=settings.model_name,
         logger=logger,
-        output_label=f"{agent_label} | {item.name}",
+        output_label=f"{agent_label} | {current_item_text}",
         agent_label=agent_label,
         custom_tools=[
           session.report_item_added,
           session.report_item_not_found,
-          session.request_product_choice,
+          request_product_choice,
         ],
       )
       status: LoopStatus = LoopStatus.CONTINUE
@@ -556,14 +600,21 @@ async def _shop_single_item_in_tab(
             color="yellow",
           )
           break
+        except AlternateOverrideInterrupt as override_exc:
+          override_triggered = True
+          termcolor.cprint(
+            f"[{agent_label}] User override received: '{override_exc.alternate_text}'. Restarting.",
+            color="cyan",
+          )
+          break
 
         if session.result is not None:
           result = session.result
           if isinstance(result, ItemAddedResult):
             default_used = (
-              preference_session.has_existing_preference and not preference_session.prompted_user
+              current_session.has_existing_preference and not current_session.prompted_user
             )
-            starred_default = preference_session.make_default_pending
+            starred_default = current_session.make_default_pending
             return AddedOutcome(
               result=result,
               used_default=default_used,
@@ -572,7 +623,7 @@ async def _shop_single_item_in_tab(
           if isinstance(result, ItemNotFoundResult):
             return NotFoundOutcome(result=result)
 
-      if not needs_retry:
+      if not needs_retry and not override_triggered:
         await shopping_list_provider.mark_failed(item.id, "completed_without_reporting")
         return FailedOutcome(error="completed_without_reporting")
     finally:
@@ -582,7 +633,29 @@ async def _shop_single_item_in_tab(
         pass
       if agent is not None:
         await agent.close()
+    if override_triggered:
+      if override_request_text is None:
+        termcolor.cprint(
+          f"[{agent_label}] Override triggered without text; treating as skip.",
+          color="yellow",
+        )
+        await shopping_list_provider.mark_failed(item.id, "invalid_override")
+        return FailedOutcome(error="invalid_override")
+      termcolor.cprint(
+        f"[{agent_label}] Restarting agent with override text '{override_request_text}'.",
+        color="cyan",
+      )
+      new_normalized = await preferences.coordinator.normalize_item(override_request_text)
+      current_session = preferences.coordinator.create_session(new_normalized)
+      current_item_text = override_request_text
+      current_specific_request = _is_specific_request(new_normalized)
+      if current_specific_request:
+        current_existing_preference = None
+      else:
+        current_existing_preference = await current_session.existing_preference()
+      continue
     if needs_retry:
+      attempt += 1
       termcolor.cprint(
         f"[{agent_label}] Authentication refreshed; retrying item from the beginning.",
         color="yellow",
@@ -597,7 +670,6 @@ async def _shop_single_item_in_tab(
         )
         return FailedOutcome(error=f"auth_recovery_failed: {auth_exc}")
       continue
-
   await shopping_list_provider.mark_failed(item.id, "auth_recovery_failed")
   termcolor.cprint(
     f"[{agent_label}] Authentication recovery exhausted; marking item as failed.",

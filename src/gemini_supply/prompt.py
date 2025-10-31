@@ -7,13 +7,32 @@ def build_shopper_prompt(
   normalized: NormalizedItem,
   preference: PreferenceRecord | None,
   specific_request: bool,
+  *,
+  override_text: str | None = None,
+  original_request: str | None = None,
 ) -> str:
   if preference is not None:
     item_name = f"{normalized.quantity}x {preference.product_name}"
 
-  # Case 2: No preference - search and decide
-  return textwrap.dedent(f"""
-    Product to add: {item_name}
+  sections: list[str] = [
+    textwrap.dedent(f"""
+      Product to add: {item_name}
+    """).strip()
+  ]
+
+  if override_text is not None and original_request is not None:
+    sections.append(
+      textwrap.dedent(f"""
+        Override Context:
+        - User override: {override_text}
+        - Original request (for reference only): {original_request}
+
+        Follow the override text if there is any conflict with the original request. Use the original request only for additional context.
+      """).strip()
+    )
+
+  sections.append(
+    textwrap.dedent(f"""
 
     Context:
     The "Product to add" is text from a human-written shopping list. Expect:
@@ -93,11 +112,6 @@ def build_shopper_prompt(
           The response will have a 'decision' field:
           * If decision="selected": Locate the product from 'selected_choice' in the search
             results, then proceed to step 3.
-          * If decision="alternate": The user provided new text in 'alternate_text'.
-            Search for this alternate text instead.
-            If the alternate includes a quantity (e.g., "3 whole milk"), use that quantity.
-            Otherwise, keep the original quantity.
-            Start over from step 1 with the new search term.
 
     3. On the search results page, interact with the chosen product:
 
@@ -160,4 +174,7 @@ def build_shopper_prompt(
     - Do NOT navigate to checkout, payment, or account pages.
     - Focus solely on adding the requested item.
     - REMEMBER the delivery/pickup flow: postal code M4C1Y5 → Confirm → Choose Later
-    """)
+    """).strip()
+  )
+
+  return "\n\n".join(sections)
