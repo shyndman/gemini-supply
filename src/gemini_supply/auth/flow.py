@@ -18,6 +18,7 @@ from gemini_supply.term import display_image_bytes_in_terminal
 
 SHORT_FENCE_ATTEMPTS = 4
 SHORT_FENCE_WAIT_MS = 2000
+_POST_LOGIN_URL = re.compile(r"^https://www\.metro\.ca/")
 
 AuthFlow: TypeAlias = Callable[[CamoufoxHost], Awaitable[None]]
 
@@ -75,6 +76,9 @@ async def _perform_login(host: CamoufoxHost) -> None:
     await _launch_login_drawer(page)
     await _solve_short_fence(page)
     await _submit_credentials(page, credentials)
+
+    termcolor.cprint("[auth] Submitted credentials; waiting for redirect.", "cyan")
+    await page.wait_for_url(_POST_LOGIN_URL)
   finally:
     await _ensure_keepalive_tab(host, preserve=page)
 
@@ -126,7 +130,7 @@ def _page_is_closed(page: Page) -> bool:
 
 async def _accept_cookies(page: Page) -> None:
   try:
-    await page.locator("#onetrust-accept-btn-handler").click()
+    await page.locator("#onetrust-accept-btn-handler").click(timeout=5000)
     termcolor.cprint("[auth] Accepted cookies.", "magenta")
   except PlaywrightTimeout:
     termcolor.cprint("[auth] Cookie banner not present.", "yellow")
@@ -158,6 +162,9 @@ async def _solve_short_fence(page: Page) -> None:
   click_position: Position | None = None
   for attempt in range(SHORT_FENCE_ATTEMPTS):
     await page.wait_for_timeout(SHORT_FENCE_WAIT_MS)
+    if await page.locator("#signInName").count() > 0:
+      termcolor.cprint("[auth] Sign-in field detected; skipping short fence.", "green")
+      return
     png_bytes = await page.locator(".main-content").screenshot(timeout=2000)
     display_image_bytes_in_terminal(png_bytes)
     click_position = find_interactive_element_click_location(png_bytes)
