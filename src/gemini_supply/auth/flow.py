@@ -8,7 +8,6 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import AsyncIterator, Awaitable, Callable, TypeAlias
 
-import termcolor
 from playwright.async_api import Page, Position
 from playwright.async_api import TimeoutError as PlaywrightTimeout
 
@@ -64,20 +63,21 @@ async def _unrestricted_context(host: CamoufoxHost) -> AsyncIterator[None]:
 async def _perform_login(host: CamoufoxHost) -> None:
   credentials = _resolve_credentials()
   page = await host.new_page()
+  log = host._log
   try:
-    await _accept_cookies(page)
+    await _accept_cookies(page, log)
     await _open_promotions(page)
     await page.wait_for_load_state()
 
     if await host.is_authenticated(page):
-      termcolor.cprint("[auth] Existing authenticated session detected; skipping login.", "yellow")
+      log.auth.warning("Existing authenticated session detected; skipping login.")
       return
 
-    await _launch_login_drawer(page)
-    await _solve_short_fence(page)
-    await _submit_credentials(page, credentials)
+    await _launch_login_drawer(page, log)
+    await _solve_short_fence(page, log)
+    await _submit_credentials(page, credentials, log)
 
-    termcolor.cprint("[auth] Submitted credentials; waiting for redirect.", "cyan")
+    log.auth.operation("Submitted credentials; waiting for redirect.")
     await page.wait_for_url(_POST_LOGIN_URL)
   finally:
     await _ensure_keepalive_tab(host, preserve=page)
@@ -128,12 +128,12 @@ def _page_is_closed(page: Page) -> bool:
     return False
 
 
-async def _accept_cookies(page: Page) -> None:
+async def _accept_cookies(page: Page, log) -> None:
   try:
     await page.locator("#onetrust-accept-btn-handler").click(timeout=5000)
-    termcolor.cprint("[auth] Accepted cookies.", "magenta")
+    log.auth.important("Accepted cookies.")
   except PlaywrightTimeout:
-    termcolor.cprint("[auth] Cookie banner not present.", "yellow")
+    log.auth.warning("Cookie banner not present.")
 
 
 async def _open_promotions(page: Page) -> None:
@@ -144,12 +144,12 @@ async def _open_promotions(page: Page) -> None:
 AUTH_URL_PATTERN = re.compile("^https://auth.moiid.ca/")
 
 
-async def _launch_login_drawer(page: Page) -> None:
-  termcolor.cprint("[auth] Opening login drawer.", "cyan")
+async def _launch_login_drawer(page: Page, log) -> None:
+  log.auth.operation("Opening login drawer.")
   await page.locator(".login--btn").click()
   await page.wait_for_timeout(1000)
 
-  termcolor.cprint("[auth] Triggering login action.", "cyan")
+  log.auth.operation("Triggering login action.")
   login_btn = page.locator("#loginSidePanelForm .cta-basic-primary")
   await login_btn.is_visible()
   await login_btn.click()
@@ -157,39 +157,39 @@ async def _launch_login_drawer(page: Page) -> None:
   await page.wait_for_url(AUTH_URL_PATTERN)
 
 
-async def _solve_short_fence(page: Page) -> None:
-  termcolor.cprint("[auth] Preparing short fence solver.", "cyan")
+async def _solve_short_fence(page: Page, log) -> None:
+  log.auth.operation("Preparing short fence solver.")
   click_position: Position | None = None
   for attempt in range(SHORT_FENCE_ATTEMPTS):
     await page.wait_for_timeout(SHORT_FENCE_WAIT_MS)
     if await page.locator("#signInName").count() > 0:
-      termcolor.cprint("[auth] Sign-in field detected; skipping short fence.", "green")
+      log.auth.success("Sign-in field detected; skipping short fence.")
       return
     png_bytes = await page.locator(".main-content").screenshot(timeout=2000)
     display_image_bytes_in_terminal(png_bytes)
     click_position = find_interactive_element_click_location(png_bytes)
     if click_position is not None:
-      termcolor.cprint(f"[auth] Click location determined, {click_position}.", "cyan")
+      log.auth.operation(f"Click location determined, {click_position}.")
       break
 
   if click_position is None:  # type: ignore
     raise AuthenticationError("Short fence challenge not detected.")
 
   await page.click(".main-content", position=click_position)
-  termcolor.cprint("[auth] Short fence cleared.", "green")
+  log.auth.success("Short fence cleared.")
 
 
-async def _submit_credentials(page: Page, credentials: AuthCredentials) -> None:
-  termcolor.cprint("[auth] Starting credential submission.", "cyan")
-  termcolor.cprint(f"[auth] Current page URL: {page.url}", "cyan")
+async def _submit_credentials(page: Page, credentials: AuthCredentials, log) -> None:
+  log.auth.operation("Starting credential submission.")
+  log.auth.operation(f"Current page URL: {page.url}")
 
-  termcolor.cprint("[auth] Waiting for username field (#signInName).", "cyan")
+  log.auth.operation("Waiting for username field (#signInName).")
   await page.locator("#signInName").fill(credentials.username)
-  termcolor.cprint("[auth] Username entered.", "green")
+  log.auth.success("Username entered.")
 
-  termcolor.cprint("[auth] Waiting for password field (#password).", "cyan")
+  log.auth.operation("Waiting for password field (#password).")
   await page.locator("#password").fill(credentials.password)
-  termcolor.cprint("[auth] Password entered.", "green")
+  log.auth.success("Password entered.")
 
   await page.keyboard.press("Enter")
-  termcolor.cprint("[auth] Submitted login form (pressed Enter).", "green")
+  log.auth.success("Submitted login form (pressed Enter).")
