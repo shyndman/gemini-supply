@@ -272,10 +272,6 @@ log.agent(agent_label).operation(
    - Or escape all user content to prevent accidental markup?
    - **Recommendation**: Allow it - gives us flexibility for emphasis
 
-3. Should `print_reasoning()` and `show_screenshot()` be async?
-   - They currently are, but don't need to be if we have no lock
-   - **Recommendation**: Keep them async for now, can simplify later if needed
-
 ## Migration Checklist
 
 - [ ] Implement `CategoryLogger` class in `term.py`
