@@ -17,6 +17,7 @@ from enum import StrEnum
 from typing import Any, Callable, Literal, TypeAlias, TypedDict, cast
 
 import google.genai
+import termcolor
 from google.genai._extra_utils import (
   convert_number_values_for_dict_function_call_args,
   invoke_function_from_dict_args_async,
@@ -45,7 +46,7 @@ from rich.table import Table
 from gemini_supply.computers import Computer, EnvState
 from gemini_supply.grocery import ItemAddedResult, ItemNotFoundResult
 from gemini_supply.preferences import ProductDecision
-from gemini_supply.term import ActivityLog, NoopActivityLog
+from gemini_supply.term import ActivityLog
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
 PREDEFINED_COMPUTER_USE_FUNCTIONS = [
@@ -101,7 +102,7 @@ class BrowserAgent:
     custom_tools: list[CustomFunctionCallable] = [],
     output_label: str | None = None,
     agent_label: str | None = None,
-    logger: ActivityLog = NoopActivityLog(),
+    logger: ActivityLog | None = None,
   ):
     self._browser_computer = browser_computer
     self._query = query
@@ -268,11 +269,16 @@ class BrowserAgent:
           message = (
             f"Generating content failed on attempt {attempt + 1}. Retrying in {delay} seconds...\n"
           )
-          self._logger.agent(self._agent_label).warning(message.strip())
+          termcolor.cprint(
+            self._with_agent_prefix(message),
+            color="yellow",
+          )
           await asyncio.sleep(delay)
         else:
-          message = f"Generating content failed after {max_retries} attempts.\n"
-          self._logger.agent(self._agent_label).failure(message.strip())
+          termcolor.cprint(
+            self._with_agent_prefix(f"Generating content failed after {max_retries} attempts.\n"),
+            color="red",
+          )
           raise
 
     # This line should never be reached because the exception is always raised on the last attempt
@@ -450,10 +456,11 @@ class BrowserAgent:
     """Prompts user for safety confirmation when required by the model."""
     if safety["decision"] != "require_confirmation":
       raise ValueError(f"Unknown safety decision: {safety['decision']}")
-    
-    message = "Safety service requires explicit confirmation!"
-    self._logger.agent(self._agent_label).warning(message)
-    
+    termcolor.cprint(
+      self._with_agent_prefix("Safety service requires explicit confirmation!"),
+      color="yellow",
+      attrs=["bold"],
+    )
     print(self._with_agent_prefix(safety["explanation"]))
     user_decision = ""
     while user_decision.lower() not in ("y", "n", "ye", "yes", "no"):
