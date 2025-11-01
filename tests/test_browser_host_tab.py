@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from gemini_supply.computers import CamoufoxHost, EnvState, ScreenSize
+from gemini_supply.term import ActivityLog
 
 # Tests cover the consolidated browser host/tab implementation.
 
@@ -15,14 +16,20 @@ def bypass_auth(monkeypatch: pytest.MonkeyPatch) -> None:
   monkeypatch.setattr(CamoufoxHost, "is_authenticated", _always_authenticated, raising=False)  # type: ignore
 
 
+@pytest.fixture
+def log() -> ActivityLog:
+  return ActivityLog()
+
+
 @pytest.mark.asyncio
-async def test_tab_context_manager(tmp_path: Path) -> None:
+async def test_tab_context_manager(tmp_path: Path, log: ActivityLog) -> None:
   """AgentManagedPage can be created from host and used as a context manager."""
   async with CamoufoxHost(
     screen_size=ScreenSize(1440, 900),
     initial_url="https://example.com",
     enforce_restrictions=False,
     user_data_dir=tmp_path,
+    log=log,
   ) as host:
     page = await host.new_agent_managed_page()
     async with page:
@@ -33,9 +40,9 @@ async def test_tab_context_manager(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tab_screen_size(tmp_path: Path) -> None:
+async def test_tab_screen_size(tmp_path: Path, log: ActivityLog) -> None:
   async with CamoufoxHost(
-    screen_size=ScreenSize(1920, 1080), enforce_restrictions=False, user_data_dir=tmp_path
+    screen_size=ScreenSize(1920, 1080), enforce_restrictions=False, user_data_dir=tmp_path, log=log
   ) as host:
     page = await host.new_agent_managed_page()
     async with page:
@@ -45,12 +52,13 @@ async def test_tab_screen_size(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tab_open_web_browser(tmp_path: Path) -> None:
+async def test_tab_open_web_browser(tmp_path: Path, log: ActivityLog) -> None:
   async with CamoufoxHost(
     screen_size=ScreenSize(1440, 900),
     initial_url="https://example.com",
     enforce_restrictions=False,
     user_data_dir=tmp_path,
+    log=log,
   ) as host:
     page = await host.new_agent_managed_page()
     async with page:
@@ -62,12 +70,13 @@ async def test_tab_open_web_browser(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tab_navigate(tmp_path: Path) -> None:
+async def test_tab_navigate(tmp_path: Path, log: ActivityLog) -> None:
   async with CamoufoxHost(
     screen_size=ScreenSize(1440, 900),
     initial_url="https://example.com",
     enforce_restrictions=False,
     user_data_dir=tmp_path,
+    log=log,
   ) as host:
     page = await host.new_agent_managed_page()
     async with page:
@@ -79,12 +88,13 @@ async def test_tab_navigate(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tab_current_state(tmp_path: Path) -> None:
+async def test_tab_current_state(tmp_path: Path, log: ActivityLog) -> None:
   async with CamoufoxHost(
     screen_size=ScreenSize(1440, 900),
     initial_url="https://example.com",
     enforce_restrictions=False,
     user_data_dir=tmp_path,
+    log=log,
   ) as host:
     page = await host.new_agent_managed_page()
     async with page:
@@ -97,12 +107,13 @@ async def test_tab_current_state(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tab_key_combination(tmp_path: Path) -> None:
+async def test_tab_key_combination(tmp_path: Path, log: ActivityLog) -> None:
   async with CamoufoxHost(
     screen_size=ScreenSize(1440, 900),
     initial_url="https://example.com",
     enforce_restrictions=False,
     user_data_dir=tmp_path,
+    log=log,
   ) as host:
     page = await host.new_agent_managed_page()
     async with page:
@@ -111,12 +122,13 @@ async def test_tab_key_combination(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tab_scroll_document(tmp_path: Path) -> None:
+async def test_tab_scroll_document(tmp_path: Path, log: ActivityLog) -> None:
   async with CamoufoxHost(
     screen_size=ScreenSize(1440, 900),
     initial_url="https://example.com",
     enforce_restrictions=False,
     user_data_dir=tmp_path,
+    log=log,
   ) as host:
     page = await host.new_agent_managed_page()
     async with page:
@@ -127,12 +139,13 @@ async def test_tab_scroll_document(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tab_click_at(tmp_path: Path) -> None:
+async def test_tab_click_at(tmp_path: Path, log: ActivityLog) -> None:
   async with CamoufoxHost(
     screen_size=ScreenSize(1440, 900),
     initial_url="https://example.com",
     enforce_restrictions=False,
     user_data_dir=tmp_path,
+    log=log,
   ) as host:
     page = await host.new_agent_managed_page()
     async with page:
@@ -142,12 +155,13 @@ async def test_tab_click_at(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tab_hover_at(tmp_path: Path) -> None:
+async def test_tab_hover_at(tmp_path: Path, log: ActivityLog) -> None:
   async with CamoufoxHost(
     screen_size=ScreenSize(1440, 900),
     initial_url="https://example.com",
     enforce_restrictions=False,
     user_data_dir=tmp_path,
+    log=log,
   ) as host:
     page = await host.new_agent_managed_page()
     async with page:
