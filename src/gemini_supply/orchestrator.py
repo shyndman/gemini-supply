@@ -255,6 +255,7 @@ async def _run_shopping_flow(
   async with CamoufoxHost(
     screen_size=settings.screen_size,
     user_data_dir=profile_dir,
+    log=logger,
     initial_url="https://www.metro.ca",
     init_scripts=load_init_scripts(),
     pre_iteration_delegate=_denature_search_results_page,

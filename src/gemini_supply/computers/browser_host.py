@@ -19,10 +19,11 @@ from typing import (
 from urllib.parse import urlparse
 
 import playwright.async_api
-import termcolor
 from camoufox.async_api import AsyncNewBrowser  # type: ignore
 from camoufox.utils import launch_options as camoufox_launch_options
 from playwright.async_api import async_playwright
+
+from gemini_supply.term import ActivityLog
 
 from .agent_managed_page import AgentManagedPage
 from .computer import ScreenSize
@@ -95,6 +96,7 @@ class CamoufoxHost:
     *,
     screen_size: ScreenSize,
     user_data_dir: Path,
+    log: ActivityLog,
     initial_url: str = "https://www.metro.ca",
     init_scripts: list[str] = [],
     pre_iteration_delegate: Callable[[playwright.async_api.Page], Awaitable[None]] | None = None,
@@ -111,6 +113,7 @@ class CamoufoxHost:
     self._enforce_restrictions = enforce_restrictions
     self._executable_path = executable_path
     self._user_data_dir = user_data_dir
+    self._log = log
 
     self._screen_size = screen_size
     self._window_position = window_position
@@ -221,13 +224,13 @@ class CamoufoxHost:
       self._restrictions_active = False
 
   async def __aenter__(self) -> "CamoufoxHost":
-    termcolor.cprint("Creating Camoufox host (persistent context)...", color="cyan")
+    self._log.operation("Creating Camoufox host (persistent context)...")
     self._playwright = await async_playwright().start()
     assert self._playwright is not None
 
     try:
       headless = self._resolve_headless_mode()
-      termcolor.cprint("Launching with Camoufox options (persistent context)...", color="cyan")
+      self._log.operation("Launching with Camoufox options (persistent context)...")
       context = await self._launch_with_camoufox_options(headless=headless)
       self._context = context
     except Exception as e:  # noqa: BLE001
@@ -237,7 +240,7 @@ class CamoufoxHost:
 
     assert self._context is not None
     await self._initialize_context(self._context)
-    termcolor.cprint("Camoufox host ready.", color="green")
+    self._log.success("Camoufox host ready.")
     return self
 
   async def _launch_with_camoufox_options(
@@ -246,8 +249,8 @@ class CamoufoxHost:
     """Launch Camoufox browser with configured options."""
     assert self._playwright is not None
     options = await self._prepare_launch_options(headless=headless)
-    termcolor.cprint("Camoufox launch configuration:", color="yellow")
-    termcolor.cprint(pformat(options, sort_dicts=False), color="yellow")
+    self._log.warning("Camoufox launch configuration:")
+    self._log.warning(pformat(options, sort_dicts=False))
 
     context = await AsyncNewBrowser(
       self._playwright,
@@ -323,23 +326,22 @@ class CamoufoxHost:
   @asynccontextmanager
   async def unrestricted(self) -> AsyncIterator[None]:
     if not self._enforce_restrictions or not self._restrictions_active:
-      termcolor.cprint(
-        "[unrestricted] Restrictions not enforced or already inactive; skipping unroute.",
-        "yellow",
+      self._log.unrestricted.warning(
+        "Restrictions not enforced or already inactive; skipping unroute."
       )
       yield
       return
     context = self.context
-    termcolor.cprint("[unrestricted] Removing route restrictions.", "cyan")
+    self._log.unrestricted.operation("Removing route restrictions.")
     await context.unroute("**/*", self._route_interceptor)
     self._restrictions_active = False
-    termcolor.cprint("[unrestricted] Restrictions removed; proceeding unrestricted.", "green")
+    self._log.unrestricted.success("Restrictions removed; proceeding unrestricted.")
     try:
       yield
     finally:
       try:
-        termcolor.cprint("[unrestricted] Re-enabling route restrictions.", "cyan")
+        self._log.unrestricted.operation("Re-enabling route restrictions.")
         await context.route("**/*", self._route_interceptor)
-        termcolor.cprint("[unrestricted] Restrictions re-enabled.", "green")
+        self._log.unrestricted.success("Restrictions re-enabled.")
       finally:
         self._restrictions_active = True
