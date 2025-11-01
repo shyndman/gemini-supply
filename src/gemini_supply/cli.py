@@ -35,9 +35,6 @@ def _concurrency_parser() -> Callable[[Sequence[str] | str], ConcurrencyConfig]:
 class Shop(Command):
   """Shop all uncompleted items from a shopping list on metro.ca"""
 
-  shopping_list: Path | None = arg(
-    None, help="Path to the shopping list YAML (YAML provider)", parser=cp.Path(exists=True)
-  )
   time_budget: timedelta = arg(
     timedelta(minutes=5), help="Time budget per item", parser=cp.TimeDelta()
   )
@@ -67,7 +64,6 @@ class Shop(Command):
       concurrency=concurrency_setting,
     )
     await run_shopping(
-      list_path=self.shopping_list.expanduser() if self.shopping_list else None,
       settings=settings,
       no_retry=self.no_retry,
       config=config,

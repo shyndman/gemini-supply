@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from datetime import timedelta
 from enum import Enum
 from importlib.resources import files
-from pathlib import Path
 from typing import Mapping, Protocol, Sequence
 from urllib.parse import urlparse
 
@@ -16,7 +15,7 @@ import playwright.async_api
 import termcolor
 
 from gemini_supply.agent import BrowserAgent, LoopStatus
-from gemini_supply.auth.flow import AuthManager
+from gemini_supply.auth import AuthManager
 from gemini_supply.computers import AuthExpiredError, CamoufoxHost, build_camoufox_options
 from gemini_supply.config import (
   AppConfig,
@@ -47,12 +46,12 @@ from gemini_supply.preferences import (
   DEFAULT_NORMALIZER_MODEL,
   NormalizationAgent,
   NormalizedItem,
+  OverrideRequest,
   PreferenceCoordinator,
   PreferenceItemSession,
   PreferenceOverrideRequested,
   PreferenceRecord,
   PreferenceStore,
-  OverrideRequest,
   TelegramPreferenceMessenger,
   TelegramSettings,
 )
@@ -111,12 +110,11 @@ class OrchestrationState:
 
 async def run_shopping(
   *,
-  list_path: Path | None,
   settings: ShoppingSettings,
   no_retry: bool = False,
   config: AppConfig,
 ) -> int:
-  provider = _build_provider(list_path, config.shopping_list, no_retry)
+  provider = _build_provider(config.shopping_list, no_retry)
   logger = ActivityLog()
   preferences = await _setup_preferences(config.preferences)
 
@@ -129,14 +127,12 @@ async def run_shopping(
   return 0
 
 
-def _build_provider(
-  list_path: Path | None, config: ShoppingListConfig, no_retry: bool
-) -> ShoppingListProvider:
+def _build_provider(config: ShoppingListConfig, no_retry: bool) -> ShoppingListProvider:
   if isinstance(config, HomeAssistantShoppingListConfig):
     return HomeAssistantShoppingListProvider(config=config, no_retry=no_retry)
 
   if isinstance(config, YAMLShoppingListConfig):
-    path = list_path or config.path
+    path = config.path
     if path is None:
       raise ValueError("A shopping list path must be provided for the YAML provider")
     return YAMLShoppingListProvider(path=path)
