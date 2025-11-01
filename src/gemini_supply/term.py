@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 from io import BytesIO
-from typing import Optional
 
 from PIL import Image as PILImage
-from PIL.Image import Image as PILImageT, Resampling
+from PIL.Image import Image as PILImageT
+from PIL.Image import Resampling
 from rich.console import Console
 from rich.table import Table
 from textual_image.renderable import Image as ConsoleImage
@@ -14,18 +13,15 @@ from textual_image.renderable import Image as ConsoleImage
 class ActivityLog:
   """Concurrency-safe terminal logger for reasoning and screenshots."""
 
-  def __init__(self, lock: Optional[asyncio.Lock] = None) -> None:
-    self._lock = lock or asyncio.Lock()
+  def __init__(self) -> None:
     self._console = Console()
 
-  async def print_reasoning(self, *, label: str | None, turn_index: int, table: Table) -> None:
-    async with self._lock:
-      if label:
-        self._console.print(f"[bold green]{label}[/bold green] — Turn {turn_index}")
-      self._console.print(table)
-      print()
+  def print_reasoning(self, *, label: str | None, turn_index: int, table: Table) -> None:
+    if label:
+      self._console.print(f"[bold green]{label}[/bold green] — Turn {turn_index}")
+    self._console.print(table, end="\n\n")
 
-  async def show_screenshot(
+  def show_screenshot(
     self,
     *,
     label: str | None,
@@ -33,10 +29,9 @@ class ActivityLog:
     url: str,
     png_bytes: bytes,
   ) -> None:
-    async with self._lock:
-      if label:
-        self._console.print(f"[cyan]{label}[/cyan] → {action_name} @ {url}")
-      display_image_bytes_in_terminal(png_bytes)
+    if label:
+      self._console.print(f"[cyan]{label}[/cyan] → {action_name} @ {url}")
+    display_image_bytes_in_terminal(png_bytes)
 
 
 def display_image_bytes_in_terminal(png_bytes: bytes) -> None:
