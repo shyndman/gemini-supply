@@ -502,8 +502,7 @@ async def _shop_single_item_in_tab(
     needs_retry = False
     page = await host.new_agent_managed_page()
     activity_log().agent(agent_label).starting(
-      f"Launching browser agent "
-      f"(attempt {attempt}/{max_attempts}) for '{display_label}'."
+      f"Launching browser agent (attempt {attempt}/{max_attempts}) for '{display_label}'."
     )
     agent: BrowserAgent | None = None
     start = time.monotonic()
@@ -519,7 +518,6 @@ async def _shop_single_item_in_tab(
         browser_computer=page,
         query=prompt,
         model_name=settings.model_name,
-        logger=logger,
         output_label=f"{agent_label} | {display_label}",
         agent_label=agent_label,
         custom_tools=[

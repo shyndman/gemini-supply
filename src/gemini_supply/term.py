@@ -12,7 +12,7 @@ from textual_image.renderable import Image as ConsoleImage
 
 
 # Context variable for activity log
-_activity_log: ContextVar[ActivityLog | None] = ContextVar("activity_log", default=None)
+_activity_log: ContextVar[ActivityLog | None] = ContextVar("activity_log")
 
 
 def activity_log() -> ActivityLog:
