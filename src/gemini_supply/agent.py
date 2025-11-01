@@ -101,7 +101,6 @@ class BrowserAgent:
     custom_tools: list[CustomFunctionCallable] = [],
     output_label: str | None = None,
     agent_label: str | None = None,
-    logger: ActivityLog | None = None,
   ):
     self._browser_computer = browser_computer
     self._query = query
@@ -109,7 +108,6 @@ class BrowserAgent:
     self._verbose = verbose
     self.final_reasoning = None
     self._turn_index = 0
-    self._logger = logger
     self._output_label = output_label
     self._agent_label = agent_label
     self._client: google.genai.Client = client or google.genai.Client(
@@ -347,13 +345,9 @@ class BrowserAgent:
     table.add_column("Function Call(s)", header_style="cyan", ratio=1)
     table.add_row(reasoning, "\n".join(function_call_strs))
     if self._verbose:
-      if self._logger is not None:
-        await self._logger.print_reasoning(
-          label=self._output_label, turn_index=self._turn_index, table=table
-        )
-      else:
-        console.print(table)
-        print()
+      activity_log().print_reasoning(
+        label=self._output_label, turn_index=self._turn_index, table=table
+      )
 
     function_responses: list[FunctionResponse] = []
     for function_call in function_calls:
@@ -381,8 +375,8 @@ class BrowserAgent:
         img_enabled = os.environ.get("GEMINI_SUPPLY_IMG_ENABLE", "1").strip().lower()
         show_img = img_enabled not in ("0", "false", "no")
 
-        if show_img and self._logger is not None:
-          await self._logger.show_screenshot(
+        if show_img:
+          activity_log().show_screenshot(
             label=self._output_label,
             action_name=(function_call.name or ""),
             url=env_state.url,
@@ -450,7 +444,9 @@ class BrowserAgent:
     """Prompts user for safety confirmation when required by the model."""
     if safety["decision"] != "require_confirmation":
       raise ValueError(f"Unknown safety decision: {safety['decision']}")
-    activity_log().agent(self._agent_label).warning("Safety service requires explicit confirmation!")
+    activity_log().agent(self._agent_label).warning(
+      "Safety service requires explicit confirmation!"
+    )
     print(self._with_agent_prefix(safety["explanation"]))
     user_decision = ""
     while user_decision.lower() not in ("y", "n", "ye", "yes", "no"):
