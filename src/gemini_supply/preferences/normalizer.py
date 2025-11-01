@@ -3,10 +3,10 @@ from __future__ import annotations
 from functools import cached_property
 from typing import cast
 
-import termcolor
 from pydantic_ai import Agent
 from pydantic_ai.models.google import GoogleModel, GoogleModelSettings
 from pydantic_ai.providers.google import GoogleProvider
+from gemini_supply.term import activity_log
 from .constants import DEFAULT_NORMALIZER_MODEL
 from .types import _PartialNormalizedItem, NormalizedItem
 
@@ -95,8 +95,8 @@ class NormalizationAgent:
     # Log model thinking if available
     thinking = run_result.response.thinking
     if thinking:
-      termcolor.cprint(f"[normalizer] Model thinking for '{item_text}':", color="cyan")
-      termcolor.cprint(f"  {thinking}", color="dark_grey")
+      activity_log().normalizer.operation(f"Model thinking for '{item_text}':")
+      activity_log().normalizer.thinking(f"  {thinking}")
 
     partial = run_result.output
     json: dict[str, object] = {
