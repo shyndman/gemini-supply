@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass
 from datetime import timedelta
 from enum import Enum
+from functools import partial
 from importlib.resources import files
 from typing import Mapping, Protocol, Sequence
 from urllib.parse import urlparse
@@ -56,7 +57,7 @@ from gemini_supply.preferences import (
 )
 from gemini_supply.profile import resolve_camoufox_exec, resolve_profile_dir
 from gemini_supply.prompt import build_shopper_prompt
-from gemini_supply.term import ActivityLog
+from gemini_supply.term import ActivityLog, NoopActivityLog
 
 DEMO_WINDOW_POSITION = (8126, 430)
 
@@ -172,50 +173,49 @@ def load_init_scripts():
   ]
 
 
-def _make_denature_delegate(log: ActivityLog):
-  """Create a denature delegate with logger captured."""
-  async def _denature_search_results_page(page: playwright.async_api.Page) -> None:
-    url = page.url
-    parsed = urlparse(url)
+async def _denature_search_results_page(
+  page: playwright.async_api.Page, log: ActivityLog
+) -> None:
+  """Denature search results page by removing product links and overlays."""
+  url = page.url
+  parsed = urlparse(url)
 
-    log.denature.trace(f"{url}")
-    if parsed.path != "/en/online-grocery/search":
-      return
+  log.denature.trace(f"{url}")
+  if parsed.path != "/en/online-grocery/search":
+    return
 
-    log.denature.operation("On search results page")
+  log.denature.operation("On search results page")
 
-    # Check for and click any visible overlay close buttons
-    close_buttons = page.locator("a.close-overlay-box")
-    count = await close_buttons.count()
-    log.denature.operation(f"Found {count} overlay close button(s), clicking...")
-    for i in range(count):
-      button = close_buttons.nth(i)
-      if await button.is_visible():
-        await button.click()
-        log.denature.success(f"Clicked overlay close button {i + 1}/{count}")
+  # Check for and click any visible overlay close buttons
+  close_buttons = page.locator("a.close-overlay-box")
+  count = await close_buttons.count()
+  log.denature.operation(f"Found {count} overlay close button(s), clicking...")
+  for i in range(count):
+    button = close_buttons.nth(i)
+    if await button.is_visible():
+      await button.click()
+      log.denature.success(f"Clicked overlay close button {i + 1}/{count}")
 
-    # Replace all a.product-details-link with span elements
-    product_links = page.locator("a.product-details-link")
-    link_count = await product_links.count()
-    if link_count > 0:
-      log.denature.operation(f"Replacing {link_count} product link(s) with spans...")
-      await page.evaluate("""(() => {
-        const links = document.querySelectorAll('a.product-details-link');
-        links.forEach(link => {
-          const span = document.createElement('span');
-          span.className = link.className;
-          span.innerHTML = link.innerHTML;
-          Array.from(link.attributes).forEach(attr => {
-            if (attr.name !== 'href') {
-              span.setAttribute(attr.name, attr.value);
-            }
-          });
-          link.parentNode.replaceChild(span, link);
+  # Replace all a.product-details-link with span elements
+  product_links = page.locator("a.product-details-link")
+  link_count = await product_links.count()
+  if link_count > 0:
+    log.denature.operation(f"Replacing {link_count} product link(s) with spans...")
+    await page.evaluate("""(() => {
+      const links = document.querySelectorAll('a.product-details-link');
+      links.forEach(link => {
+        const span = document.createElement('span');
+        span.className = link.className;
+        span.innerHTML = link.innerHTML;
+        Array.from(link.attributes).forEach(attr => {
+          if (attr.name !== 'href') {
+            span.setAttribute(attr.name, attr.value);
+          }
         });
-      })()""")
-      log.denature.success(f"Replaced {link_count} product links with spans")
-  
-  return _denature_search_results_page
+        link.parentNode.replaceChild(span, link);
+      });
+    })()""")
+    log.denature.success(f"Replaced {link_count} product links with spans")
 
 
 async def _run_shopping_flow(
@@ -251,7 +251,7 @@ async def _run_shopping_flow(
     log=logger,
     initial_url="https://www.metro.ca",
     init_scripts=load_init_scripts(),
-    pre_iteration_delegate=_make_denature_delegate(logger),
+    pre_iteration_delegate=partial(_denature_search_results_page, log=logger),
     highlight_mouse=True,
     enforce_restrictions=True,
     executable_path=camoufox_exec,
@@ -456,18 +456,14 @@ async def _handle_processing_exception(
   provider: ShoppingListProvider,
   *,
   agent_label: str | None = None,
-  logger: ActivityLog | None = None,
+  logger: ActivityLog = NoopActivityLog(),
 ) -> None:
   import sys
   import traceback
 
   tb = traceback.format_exc()
   message = "Exception while shopping item:"
-  if logger and agent_label:
-    logger.agent(agent_label).failure(message)
-  else:
-    prefix = f"[{agent_label}] " if agent_label else ""
-    print(f"{prefix}{message}", file=sys.stderr)
+  logger.agent(agent_label).failure(message)
   
   prefix = f"[{agent_label}] " if agent_label else ""
   print(f"{prefix}{tb}", file=sys.stderr)

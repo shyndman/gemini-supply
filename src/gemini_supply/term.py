@@ -10,48 +10,115 @@ from rich.table import Table
 from textual_image.renderable import Image as ConsoleImage
 
 
+class NoopCategoryLogger:
+  """No-op logger that discards all messages."""
+
+  def operation(self, message: str) -> None:
+    """No-op operation log."""
+    pass
+
+  def success(self, message: str) -> None:
+    """No-op success log."""
+    pass
+
+  def warning(self, message: str) -> None:
+    """No-op warning log."""
+    pass
+
+  def important(self, message: str) -> None:
+    """No-op important log."""
+    pass
+
+  def failure(self, message: str) -> None:
+    """No-op failure log."""
+    pass
+
+  def starting(self, message: str) -> None:
+    """No-op starting log."""
+    pass
+
+  def debug(self, message: str) -> None:
+    """No-op debug log."""
+    pass
+
+  def thinking(self, message: str) -> None:
+    """No-op thinking log."""
+    pass
+
+  def trace(self, message: str) -> None:
+    """No-op trace log."""
+    pass
+
+
 class CategoryLogger:
   """Prefixed logger delegate for a specific category."""
 
-  def __init__(self, console: Console, prefix: str) -> None:
+  def __init__(self, console: Console, prefix: str | None) -> None:
     self._console = console
     self._prefix = prefix
 
   def operation(self, message: str) -> None:
     """Log an operation in progress (cyan)."""
-    self._console.print(f"[cyan]\\[{self._prefix}] {message}[/cyan]")
+    if self._prefix:
+      self._console.print(f"[cyan]\\[{self._prefix}] {message}[/cyan]")
+    else:
+      self._console.print(f"[cyan]{message}[/cyan]")
 
   def success(self, message: str) -> None:
     """Log a successful completion (green)."""
-    self._console.print(f"[green]\\[{self._prefix}] {message}[/green]")
+    if self._prefix:
+      self._console.print(f"[green]\\[{self._prefix}] {message}[/green]")
+    else:
+      self._console.print(f"[green]{message}[/green]")
 
   def warning(self, message: str) -> None:
     """Log a warning or unusual state (yellow)."""
-    self._console.print(f"[yellow]\\[{self._prefix}] {message}[/yellow]")
+    if self._prefix:
+      self._console.print(f"[yellow]\\[{self._prefix}] {message}[/yellow]")
+    else:
+      self._console.print(f"[yellow]{message}[/yellow]")
 
   def important(self, message: str) -> None:
     """Log important data or information (magenta)."""
-    self._console.print(f"[magenta]\\[{self._prefix}] {message}[/magenta]")
+    if self._prefix:
+      self._console.print(f"[magenta]\\[{self._prefix}] {message}[/magenta]")
+    else:
+      self._console.print(f"[magenta]{message}[/magenta]")
 
   def failure(self, message: str) -> None:
     """Log an error or failure (red)."""
-    self._console.print(f"[red]\\[{self._prefix}] {message}[/red]")
+    if self._prefix:
+      self._console.print(f"[red]\\[{self._prefix}] {message}[/red]")
+    else:
+      self._console.print(f"[red]{message}[/red]")
 
   def starting(self, message: str) -> None:
     """Log the start of a process (blue)."""
-    self._console.print(f"[blue]\\[{self._prefix}] {message}[/blue]")
+    if self._prefix:
+      self._console.print(f"[blue]\\[{self._prefix}] {message}[/blue]")
+    else:
+      self._console.print(f"[blue]{message}[/blue]")
 
   def debug(self, message: str) -> None:
     """Log debug information (white)."""
-    self._console.print(f"[white]\\[{self._prefix}] {message}[/white]")
+    if self._prefix:
+      self._console.print(f"[white]\\[{self._prefix}] {message}[/white]")
+    else:
+      self._console.print(f"[white]{message}[/white]")
 
   def thinking(self, message: str) -> None:
     """Log model thinking output (dim)."""
-    self._console.print(f"[dim]\\[{self._prefix}] {message}[/dim]")
+    if self._prefix:
+      self._console.print(f"[dim]\\[{self._prefix}] {message}[/dim]")
+    else:
+      self._console.print(f"[dim]{message}[/dim]")
 
   def trace(self, message: str) -> None:
     """Log low-level debug information (grey70)."""
-    self._console.print(f"[grey70]\\[{self._prefix}] {message}[/grey70]")
+    if self._prefix:
+      self._console.print(f"[grey70]\\[{self._prefix}] {message}[/grey70]")
+    else:
+      self._console.print(f"[grey70]{message}[/grey70]")
 
 
 class ActivityLog:
@@ -67,11 +134,11 @@ class ActivityLog:
     self.denature = CategoryLogger(self._console, "denature")
     self.unrestricted = CategoryLogger(self._console, "unrestricted")
 
-  def agent(self, label: str) -> CategoryLogger:
+  def agent(self, label: str | None) -> CategoryLogger:
     """Create a logger for a specific agent."""
     return CategoryLogger(self._console, label)
 
-  def prefix(self, name: str) -> CategoryLogger:
+  def prefix(self, name: str | None) -> CategoryLogger:
     """Create a logger with a custom prefix."""
     return CategoryLogger(self._console, name)
 
@@ -128,6 +195,79 @@ class ActivityLog:
     if label:
       self._console.print(f"[cyan]{label}[/cyan] → {action_name} @ {url}")
     display_image_bytes_in_terminal(png_bytes)
+
+
+class NoopActivityLog:
+  """No-op logger that discards all messages."""
+
+  def __init__(self) -> None:
+    self._noop = NoopCategoryLogger()
+    # Static category loggers
+    self.auth = self._noop
+    self.stage = self._noop
+    self.normalizer = self._noop
+    self.denature = self._noop
+    self.unrestricted = self._noop
+
+  def agent(self, label: str | None) -> NoopCategoryLogger:
+    """Create a no-op logger for a specific agent."""
+    return self._noop
+
+  def prefix(self, name: str | None) -> NoopCategoryLogger:
+    """Create a no-op logger with a custom prefix."""
+    return self._noop
+
+  # Root-level semantic methods (no prefix)
+  def operation(self, message: str) -> None:
+    """No-op operation log."""
+    pass
+
+  def success(self, message: str) -> None:
+    """No-op success log."""
+    pass
+
+  def warning(self, message: str) -> None:
+    """No-op warning log."""
+    pass
+
+  def important(self, message: str) -> None:
+    """No-op important log."""
+    pass
+
+  def failure(self, message: str) -> None:
+    """No-op failure log."""
+    pass
+
+  def starting(self, message: str) -> None:
+    """No-op starting log."""
+    pass
+
+  def debug(self, message: str) -> None:
+    """No-op debug log."""
+    pass
+
+  def thinking(self, message: str) -> None:
+    """No-op thinking log."""
+    pass
+
+  def trace(self, message: str) -> None:
+    """No-op trace log."""
+    pass
+
+  def print_reasoning(self, *, label: str | None, turn_index: int, table: Table) -> None:
+    """No-op reasoning log."""
+    pass
+
+  def show_screenshot(
+    self,
+    *,
+    label: str | None,
+    action_name: str,
+    url: str,
+    png_bytes: bytes,
+  ) -> None:
+    """No-op screenshot log."""
+    pass
 
 
 def display_image_bytes_in_terminal(png_bytes: bytes) -> None:

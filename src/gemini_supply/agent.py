@@ -45,7 +45,7 @@ from rich.table import Table
 from gemini_supply.computers import Computer, EnvState
 from gemini_supply.grocery import ItemAddedResult, ItemNotFoundResult
 from gemini_supply.preferences import ProductDecision
-from gemini_supply.term import ActivityLog
+from gemini_supply.term import ActivityLog, NoopActivityLog
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
 PREDEFINED_COMPUTER_USE_FUNCTIONS = [
@@ -101,7 +101,7 @@ class BrowserAgent:
     custom_tools: list[CustomFunctionCallable] = [],
     output_label: str | None = None,
     agent_label: str | None = None,
-    logger: ActivityLog | None = None,
+    logger: ActivityLog = NoopActivityLog(),
   ):
     self._browser_computer = browser_computer
     self._query = query
@@ -268,17 +268,11 @@ class BrowserAgent:
           message = (
             f"Generating content failed on attempt {attempt + 1}. Retrying in {delay} seconds...\n"
           )
-          if self._logger and self._agent_label:
-            self._logger.agent(self._agent_label).warning(message.strip())
-          else:
-            print(self._with_agent_prefix(message))
+          self._logger.agent(self._agent_label).warning(message.strip())
           await asyncio.sleep(delay)
         else:
           message = f"Generating content failed after {max_retries} attempts.\n"
-          if self._logger and self._agent_label:
-            self._logger.agent(self._agent_label).failure(message.strip())
-          else:
-            print(self._with_agent_prefix(message))
+          self._logger.agent(self._agent_label).failure(message.strip())
           raise
 
     # This line should never be reached because the exception is always raised on the last attempt
@@ -458,10 +452,7 @@ class BrowserAgent:
       raise ValueError(f"Unknown safety decision: {safety['decision']}")
     
     message = "Safety service requires explicit confirmation!"
-    if self._logger and self._agent_label:
-      self._logger.agent(self._agent_label).warning(message)
-    else:
-      print(self._with_agent_prefix(message))
+    self._logger.agent(self._agent_label).warning(message)
     
     print(self._with_agent_prefix(safety["explanation"]))
     user_decision = ""
