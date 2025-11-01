@@ -57,7 +57,7 @@ from gemini_supply.preferences import (
 )
 from gemini_supply.profile import resolve_camoufox_exec, resolve_profile_dir
 from gemini_supply.prompt import build_shopper_prompt
-from gemini_supply.term import ActivityLog
+from gemini_supply.term import ActivityLog, activity_log, set_activity_log
 
 DEMO_WINDOW_POSITION = (8126, 430)
 
@@ -116,6 +116,7 @@ async def run_shopping(
 ) -> int:
   provider = _build_provider(config.shopping_list, no_retry)
   logger = ActivityLog()
+  set_activity_log(logger)  # Set up context for all child calls
   preferences = await _setup_preferences(config.preferences)
 
   try:
