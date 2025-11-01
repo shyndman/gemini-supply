@@ -92,11 +92,11 @@ class ShoppingResults:
 
 @dataclass(slots=True)
 class ShoppingSettings:
-  model_name: str
-  screen_size: ScreenSize
-  time_budget: timedelta
-  max_turns: int
-  concurrency: ConcurrencyConfig
+  model_name: str = "gemini-2.5-computer-use-preview-10-2025"
+  screen_size: ScreenSize = field(default_factory=lambda: ScreenSize(1024, 768))
+  time_budget: timedelta = field(default_factory=lambda: timedelta(minutes=5))
+  max_turns: int = 40
+  concurrency: ConcurrencyConfig = field(default_factory=lambda: ConcurrencyConfig(value="len"))
 
 
 @dataclass(slots=True)

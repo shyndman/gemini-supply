@@ -38,7 +38,6 @@ class Shop(Command):
   shopping_list: Path | None = arg(
     None, help="Path to the shopping list YAML (YAML provider)", parser=cp.Path(exists=True)
   )
-  model: str = arg("gemini-2.5-computer-use-preview-10-2025", help="Model to use")
   time_budget: timedelta = arg(
     timedelta(minutes=5), help="Time budget per item", parser=cp.TimeDelta()
   )
@@ -62,7 +61,6 @@ class Shop(Command):
     config = load_config(config_path)
     concurrency_setting = self.concurrency if self.concurrency is not None else config.concurrency
     settings = ShoppingSettings(
-      model_name=self.model,
       screen_size=ScreenSize(*PLAYWRIGHT_SCREEN_SIZE),
       time_budget=self.time_budget,
       max_turns=self.max_turns,
