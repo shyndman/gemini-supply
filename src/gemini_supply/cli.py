@@ -16,7 +16,6 @@ from gemini_supply.config import DEFAULT_CONFIG_PATH, ConcurrencyConfig, load_co
 from gemini_supply.models import ShoppingSettings
 from gemini_supply.orchestrator import run_shopping, load_init_scripts
 from gemini_supply.profile import resolve_camoufox_exec, resolve_profile_dir
-from gemini_supply.term import ActivityLog
 
 PLAYWRIGHT_SCREEN_SIZE = (1024, 768)
 DEMO_WINDOW_POSITION = (8126, 430)
@@ -83,12 +82,10 @@ class Browse(Command):
 
     profile_dir = resolve_profile_dir()
     camoufox_exec = resolve_camoufox_exec()
-    log = ActivityLog()
 
     async with CamoufoxHost(
       screen_size=ScreenSize(*PLAYWRIGHT_SCREEN_SIZE),
       user_data_dir=profile_dir,
-      log=log,
       initial_url=self.initial_url,
       init_scripts=load_init_scripts(),
       enforce_restrictions=False,
@@ -115,12 +112,10 @@ class ClearStorage(Command):
     profile_dir = resolve_profile_dir()
     camoufox_exec = resolve_camoufox_exec()
     initial_url = "https://www.whatismyip.com/"
-    log = ActivityLog()
 
     async with CamoufoxHost(
       screen_size=ScreenSize(*PLAYWRIGHT_SCREEN_SIZE),
       user_data_dir=profile_dir,
-      log=log,
       initial_url=initial_url,
       enforce_restrictions=False,
       executable_path=camoufox_exec,

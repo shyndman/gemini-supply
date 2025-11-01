@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextvars import ContextVar
 from io import BytesIO
 
 from PIL import Image as PILImage
@@ -10,44 +11,21 @@ from rich.table import Table
 from textual_image.renderable import Image as ConsoleImage
 
 
-class NoopCategoryLogger:
-  """No-op logger that discards all messages."""
+# Context variable for activity log
+_activity_log: ContextVar[ActivityLog | None] = ContextVar("activity_log", default=None)
 
-  def operation(self, message: str) -> None:
-    """No-op operation log."""
-    pass
 
-  def success(self, message: str) -> None:
-    """No-op success log."""
-    pass
+def activity_log() -> ActivityLog:
+  """Get the current ActivityLog instance from context."""
+  log = _activity_log.get()
+  if log is None:
+    raise RuntimeError("ActivityLog not initialized. Call set_activity_log() first.")
+  return log
 
-  def warning(self, message: str) -> None:
-    """No-op warning log."""
-    pass
 
-  def important(self, message: str) -> None:
-    """No-op important log."""
-    pass
-
-  def failure(self, message: str) -> None:
-    """No-op failure log."""
-    pass
-
-  def starting(self, message: str) -> None:
-    """No-op starting log."""
-    pass
-
-  def debug(self, message: str) -> None:
-    """No-op debug log."""
-    pass
-
-  def thinking(self, message: str) -> None:
-    """No-op thinking log."""
-    pass
-
-  def trace(self, message: str) -> None:
-    """No-op trace log."""
-    pass
+def set_activity_log(log: ActivityLog) -> None:
+  """Set the ActivityLog instance for the current context."""
+  _activity_log.set(log)
 
 
 class CategoryLogger:
@@ -195,79 +173,6 @@ class ActivityLog:
     if label:
       self._console.print(f"[cyan]{label}[/cyan] → {action_name} @ {url}")
     display_image_bytes_in_terminal(png_bytes)
-
-
-class NoopActivityLog:
-  """No-op logger that discards all messages."""
-
-  def __init__(self) -> None:
-    self._noop = NoopCategoryLogger()
-    # Static category loggers
-    self.auth = self._noop
-    self.stage = self._noop
-    self.normalizer = self._noop
-    self.denature = self._noop
-    self.unrestricted = self._noop
-
-  def agent(self, label: str | None) -> NoopCategoryLogger:
-    """Create a no-op logger for a specific agent."""
-    return self._noop
-
-  def prefix(self, name: str | None) -> NoopCategoryLogger:
-    """Create a no-op logger with a custom prefix."""
-    return self._noop
-
-  # Root-level semantic methods (no prefix)
-  def operation(self, message: str) -> None:
-    """No-op operation log."""
-    pass
-
-  def success(self, message: str) -> None:
-    """No-op success log."""
-    pass
-
-  def warning(self, message: str) -> None:
-    """No-op warning log."""
-    pass
-
-  def important(self, message: str) -> None:
-    """No-op important log."""
-    pass
-
-  def failure(self, message: str) -> None:
-    """No-op failure log."""
-    pass
-
-  def starting(self, message: str) -> None:
-    """No-op starting log."""
-    pass
-
-  def debug(self, message: str) -> None:
-    """No-op debug log."""
-    pass
-
-  def thinking(self, message: str) -> None:
-    """No-op thinking log."""
-    pass
-
-  def trace(self, message: str) -> None:
-    """No-op trace log."""
-    pass
-
-  def print_reasoning(self, *, label: str | None, turn_index: int, table: Table) -> None:
-    """No-op reasoning log."""
-    pass
-
-  def show_screenshot(
-    self,
-    *,
-    label: str | None,
-    action_name: str,
-    url: str,
-    png_bytes: bytes,
-  ) -> None:
-    """No-op screenshot log."""
-    pass
 
 
 def display_image_bytes_in_terminal(png_bytes: bytes) -> None:

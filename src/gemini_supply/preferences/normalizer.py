@@ -3,10 +3,10 @@ from __future__ import annotations
 from functools import cached_property
 from typing import cast
 
+import termcolor
 from pydantic_ai import Agent
 from pydantic_ai.models.google import GoogleModel, GoogleModelSettings
 from pydantic_ai.providers.google import GoogleProvider
-from gemini_supply.term import ActivityLog, NoopActivityLog
 from .constants import DEFAULT_NORMALIZER_MODEL
 from .types import _PartialNormalizedItem, NormalizedItem
 
@@ -82,12 +82,10 @@ class NormalizationAgent:
     model_name: str = DEFAULT_NORMALIZER_MODEL,
     base_url: str | None = None,
     api_key: str | None = None,
-    log: ActivityLog = NoopActivityLog(),
   ) -> None:
     self._model_name = model_name
     self._base_url = base_url.strip() if isinstance(base_url, str) and base_url.strip() else None
     self._api_key = api_key.strip() if isinstance(api_key, str) and api_key.strip() else None
-    self._log = log
 
   async def normalize(self, item_text: str) -> NormalizedItem:
     run_result = await self._agent.run(
@@ -97,8 +95,8 @@ class NormalizationAgent:
     # Log model thinking if available
     thinking = run_result.response.thinking
     if thinking:
-      self._log.normalizer.operation(f"Model thinking for '{item_text}':")
-      self._log.normalizer.thinking(f"  {thinking}")
+      termcolor.cprint(f"[normalizer] Model thinking for '{item_text}':", color="cyan")
+      termcolor.cprint(f"  {thinking}", color="dark_grey")
 
     partial = run_result.output
     json: dict[str, object] = {

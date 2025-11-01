@@ -16,7 +16,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from gemini_supply.config import load_config
 from gemini_supply.preferences.normalizer import NormalizationAgent
-from gemini_supply.term import ActivityLog
 
 
 async def main() -> None:
@@ -35,12 +34,10 @@ async def main() -> None:
 
   # Create normalizer from config
   prefs = config.preferences
-  log = ActivityLog()
   agent = NormalizationAgent(
     model_name=prefs.normalizer_model,
     base_url=prefs.normalizer_api_base_url,
     api_key=prefs.normalizer_api_key,
-    log=log,
   )
 
   # Process each item
