@@ -17,7 +17,6 @@ from enum import StrEnum
 from typing import Any, Callable, Literal, TypeAlias, TypedDict, cast
 
 import google.genai
-import termcolor
 from google.genai._extra_utils import (
   convert_number_values_for_dict_function_call_args,
   invoke_function_from_dict_args_async,
@@ -269,16 +268,17 @@ class BrowserAgent:
           message = (
             f"Generating content failed on attempt {attempt + 1}. Retrying in {delay} seconds...\n"
           )
-          termcolor.cprint(
-            self._with_agent_prefix(message),
-            color="yellow",
-          )
+          if self._logger and self._agent_label:
+            self._logger.agent(self._agent_label).warning(message.strip())
+          else:
+            print(self._with_agent_prefix(message))
           await asyncio.sleep(delay)
         else:
-          termcolor.cprint(
-            self._with_agent_prefix(f"Generating content failed after {max_retries} attempts.\n"),
-            color="red",
-          )
+          message = f"Generating content failed after {max_retries} attempts.\n"
+          if self._logger and self._agent_label:
+            self._logger.agent(self._agent_label).failure(message.strip())
+          else:
+            print(self._with_agent_prefix(message))
           raise
 
     # This line should never be reached because the exception is always raised on the last attempt
@@ -456,11 +456,13 @@ class BrowserAgent:
     """Prompts user for safety confirmation when required by the model."""
     if safety["decision"] != "require_confirmation":
       raise ValueError(f"Unknown safety decision: {safety['decision']}")
-    termcolor.cprint(
-      self._with_agent_prefix("Safety service requires explicit confirmation!"),
-      color="yellow",
-      attrs=["bold"],
-    )
+    
+    message = "Safety service requires explicit confirmation!"
+    if self._logger and self._agent_label:
+      self._logger.agent(self._agent_label).warning(message)
+    else:
+      print(self._with_agent_prefix(message))
+    
     print(self._with_agent_prefix(safety["explanation"]))
     user_decision = ""
     while user_decision.lower() not in ("y", "n", "ye", "yes", "no"):
