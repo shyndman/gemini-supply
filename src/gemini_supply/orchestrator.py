@@ -12,7 +12,6 @@ from urllib.parse import urlparse
 
 import playwright
 import playwright.async_api
-import termcolor
 
 from gemini_supply.agent import BrowserAgent, LoopStatus
 from gemini_supply.auth import AuthManager
@@ -84,11 +83,12 @@ class OrchestrationStage(Enum):
 class OrchestrationState:
   """Tracks orchestration stage and gates pre-shop authentication."""
 
-  __slots__ = ("_stage", "_lock")
+  __slots__ = ("_stage", "_lock", "_log")
 
-  def __init__(self) -> None:
+  def __init__(self, log: ActivityLog) -> None:
     self._stage = OrchestrationStage.PRE_SHOP_AUTH
     self._lock = asyncio.Lock()
+    self._log = log
 
   @property
   def stage(self) -> OrchestrationStage:
@@ -96,16 +96,13 @@ class OrchestrationState:
 
   async def ensure_pre_shop_auth(self, auth_manager: AuthEnsurer) -> None:
     async with self._lock:
-      termcolor.cprint(
-        f"[stage] acquired auth gate (stage={self._stage.value})",
-        color="white",
-      )
+      self._log.stage.debug(f"acquired auth gate (stage={self._stage.value})")
       if self._stage is OrchestrationStage.SHOPPING:
-        termcolor.cprint("[stage] skipping auth; already shopping.", color="magenta")
+        self._log.stage.important("skipping auth; already shopping.")
         return
       await auth_manager.ensure_authenticated()
       self._stage = OrchestrationStage.SHOPPING
-      termcolor.cprint("[stage] promoted stage to shopping.", color="green")
+      self._log.stage.success("promoted stage to shopping.")
 
 
 async def run_shopping(
@@ -175,48 +172,50 @@ def load_init_scripts():
   ]
 
 
-async def _denature_search_results_page(page: playwright.async_api.Page) -> None:
-  url = page.url
-  parsed = urlparse(url)
+def _make_denature_delegate(log: ActivityLog):
+  """Create a denature delegate with logger captured."""
+  async def _denature_search_results_page(page: playwright.async_api.Page) -> None:
+    url = page.url
+    parsed = urlparse(url)
 
-  termcolor.cprint(f"[denature] {url}", color="light_grey")
-  if parsed.path != "/en/online-grocery/search":
-    return
+    log.denature.trace(f"{url}")
+    if parsed.path != "/en/online-grocery/search":
+      return
 
-  termcolor.cprint("[denature] On search results page", color="cyan")
+    log.denature.operation("On search results page")
 
-  # Check for and click any visible overlay close buttons
-  close_buttons = page.locator("a.close-overlay-box")
-  count = await close_buttons.count()
-  termcolor.cprint(f"[denature] Found {count} overlay close button(s), clicking...", color="cyan")
-  for i in range(count):
-    button = close_buttons.nth(i)
-    if await button.is_visible():
-      await button.click()
-      termcolor.cprint(f"[denature] Clicked overlay close button {i + 1}/{count}", color="green")
+    # Check for and click any visible overlay close buttons
+    close_buttons = page.locator("a.close-overlay-box")
+    count = await close_buttons.count()
+    log.denature.operation(f"Found {count} overlay close button(s), clicking...")
+    for i in range(count):
+      button = close_buttons.nth(i)
+      if await button.is_visible():
+        await button.click()
+        log.denature.success(f"Clicked overlay close button {i + 1}/{count}")
 
-  # Replace all a.product-details-link with span elements
-  product_links = page.locator("a.product-details-link")
-  link_count = await product_links.count()
-  if link_count > 0:
-    termcolor.cprint(
-      f"[denature] Replacing {link_count} product link(s) with spans...", color="cyan"
-    )
-    await page.evaluate("""(() => {
-      const links = document.querySelectorAll('a.product-details-link');
-      links.forEach(link => {
-        const span = document.createElement('span');
-        span.className = link.className;
-        span.innerHTML = link.innerHTML;
-        Array.from(link.attributes).forEach(attr => {
-          if (attr.name !== 'href') {
-            span.setAttribute(attr.name, attr.value);
-          }
+    # Replace all a.product-details-link with span elements
+    product_links = page.locator("a.product-details-link")
+    link_count = await product_links.count()
+    if link_count > 0:
+      log.denature.operation(f"Replacing {link_count} product link(s) with spans...")
+      await page.evaluate("""(() => {
+        const links = document.querySelectorAll('a.product-details-link');
+        links.forEach(link => {
+          const span = document.createElement('span');
+          span.className = link.className;
+          span.innerHTML = link.innerHTML;
+          Array.from(link.attributes).forEach(attr => {
+            if (attr.name !== 'href') {
+              span.setAttribute(attr.name, attr.value);
+            }
+          });
+          link.parentNode.replaceChild(span, link);
         });
-        link.parentNode.replaceChild(span, link);
-      });
-    })()""")
-    termcolor.cprint(f"[denature] Replaced {link_count} product links with spans", color="green")
+      })()""")
+      log.denature.success(f"Replaced {link_count} product links with spans")
+  
+  return _denature_search_results_page
 
 
 async def _run_shopping_flow(
@@ -226,32 +225,25 @@ async def _run_shopping_flow(
   preferences: PreferenceResources,
 ) -> ShoppingResults:
   profile_dir = resolve_profile_dir()
-  termcolor.cprint(f"Using profile: {profile_dir}", color="cyan")
+  logger.operation(f"Using profile: {profile_dir}")
   camoufox_exec = resolve_camoufox_exec()
 
   items = await provider.get_uncompleted_items()
   if not items:
-    termcolor.cprint("No uncompleted items found.", color="yellow")
+    logger.warning("No uncompleted items found.")
     return ShoppingResults()
 
-  termcolor.cprint(
-    f"Loaded shopping list with {len(items)} item{'s' if len(items) != 1 else ''}:",
-    color="magenta",
+  logger.important(
+    f"Loaded shopping list with {len(items)} item{'s' if len(items) != 1 else ''}:"
   )
   for entry in items:
-    termcolor.cprint(
-      f"  • {entry.name} (id={entry.id}, status={entry.status.value})",
-      color="magenta",
-    )
+    logger.important(f"  • {entry.name} (id={entry.id}, status={entry.status.value})")
 
   effective_concurrency = settings.concurrency.resolve(len(items))
-  termcolor.cprint(f"Resolved concurrency: {effective_concurrency}", color="cyan")
+  logger.operation(f"Resolved concurrency: {effective_concurrency}")
 
   agent_labels = {item.id: f"agent-{idx + 1}" for idx, item in enumerate(items)}
-  termcolor.cprint(
-    f"[stage] Initialized orchestration state with {len(agent_labels)} agents.",
-    color="blue",
-  )
+  logger.stage.starting(f"Initialized orchestration state with {len(agent_labels)} agents.")
 
   async with CamoufoxHost(
     screen_size=settings.screen_size,
@@ -259,7 +251,7 @@ async def _run_shopping_flow(
     log=logger,
     initial_url="https://www.metro.ca",
     init_scripts=load_init_scripts(),
-    pre_iteration_delegate=_denature_search_results_page,
+    pre_iteration_delegate=_make_denature_delegate(logger),
     highlight_mouse=True,
     enforce_restrictions=True,
     executable_path=camoufox_exec,
@@ -267,7 +259,7 @@ async def _run_shopping_flow(
     window_position=DEMO_WINDOW_POSITION,
   ) as host:
     auth_manager = AuthManager(host)
-    state = OrchestrationState()
+    state = OrchestrationState(logger)
     await state.ensure_pre_shop_auth(auth_manager)
     if effective_concurrency <= 1:
       return await _run_sequential(
@@ -401,29 +393,19 @@ async def _process_item(
 ) -> Outcome:
   existing_preference: PreferenceRecord | None = None
   specific_request = False
-  termcolor.cprint(
-    f"[{agent_label}] Begin pre-shop auth check for '{item.name}'.",
-    color="white",
-  )
+  logger.agent(agent_label).debug(f"Begin pre-shop auth check for '{item.name}'.")
   await state.ensure_pre_shop_auth(auth_manager)
-  termcolor.cprint(
-    f"[{agent_label}] Stage is {state.stage.value} after auth check.",
-    color="white",
-  )
+  logger.agent(agent_label).debug(f"Stage is {state.stage.value} after auth check.")
 
   root_normalized = await preferences.coordinator.normalize_item(item.name)
-  termcolor.cprint(
-    f"[{agent_label}] Normalized '{item.name}' -> {root_normalized}",
-    color="yellow",
-  )
+  logger.agent(agent_label).warning(f"Normalized '{item.name}' -> {root_normalized}")
   root_original_text = root_normalized.original_text
   active_override: OverrideRequest | None = None
   current_normalized = root_normalized
 
   while True:
-    termcolor.cprint(
-      f"[{agent_label}] Active shopping text: '{current_normalized.original_text}'.",
-      color="yellow",
+    logger.agent(agent_label).warning(
+      f"Active shopping text: '{current_normalized.original_text}'."
     )
     preference_session = preferences.coordinator.create_session(current_normalized)
     specific_request = _is_specific_request(current_normalized)
@@ -449,12 +431,9 @@ async def _process_item(
       )
     except PreferenceOverrideRequested as override_exc:
       active_override = override_exc.override
-      termcolor.cprint(
-        (
-          f"[{agent_label}] User override received. Using new text "
-          f"'{active_override.override_text}' (source={active_override.source})."
-        ),
-        color="cyan",
+      logger.agent(agent_label).operation(
+        f"User override received. Using new text "
+        f"'{active_override.override_text}' (source={active_override.source})."
       )
       current_normalized = await preferences.coordinator.normalize_item(
         active_override.override_text
@@ -466,6 +445,7 @@ async def _process_item(
         exc,
         provider,
         agent_label=agent_label,
+        logger=logger,
       )
       return FailedOutcome(error=str(exc))
 
@@ -476,13 +456,20 @@ async def _handle_processing_exception(
   provider: ShoppingListProvider,
   *,
   agent_label: str | None = None,
+  logger: ActivityLog | None = None,
 ) -> None:
   import sys
   import traceback
 
   tb = traceback.format_exc()
+  message = "Exception while shopping item:"
+  if logger and agent_label:
+    logger.agent(agent_label).failure(message)
+  else:
+    prefix = f"[{agent_label}] " if agent_label else ""
+    print(f"{prefix}{message}", file=sys.stderr)
+  
   prefix = f"[{agent_label}] " if agent_label else ""
-  termcolor.cprint(f"{prefix}Exception while shopping item:", color="red")
   print(f"{prefix}{tb}", file=sys.stderr)
   await provider.mark_failed(item.id, f"exception: {exc}\n{tb}")
 
@@ -513,10 +500,7 @@ async def _shop_single_item_in_tab(
   display_label = active_text
   if override is not None:
     display_label = override.override_text
-  termcolor.cprint(
-    f"[{agent_label}] 🛒 Shopping for '{display_label}'.",
-    color="cyan",
-  )
+  logger.agent(agent_label).operation(f"🛒 Shopping for '{display_label}'.")
   normalized = preference_session.normalized
   prompt = build_shopper_prompt(
     display_label,
@@ -526,18 +510,14 @@ async def _shop_single_item_in_tab(
     override_text=override.override_text if override is not None else None,
     original_list_text=original_entry_text,
   )
-  termcolor.cprint(
-    f"[{agent_label}] Computer-use prompt:\n{textwrap.indent(prompt, '  ')}",
-    color="white",
-  )
+  logger.agent(agent_label).debug(f"Computer-use prompt:\n{textwrap.indent(prompt, '  ')}")
   max_attempts = 2
   for attempt in range(1, max_attempts + 1):
     needs_retry = False
     page = await host.new_agent_managed_page()
-    termcolor.cprint(
-      f"[{agent_label}] Launching browser agent "
-      f"(attempt {attempt}/{max_attempts}) for '{display_label}'.",
-      color="blue",
+    logger.agent(agent_label).starting(
+      f"Launching browser agent "
+      f"(attempt {attempt}/{max_attempts}) for '{display_label}'."
     )
     agent: BrowserAgent | None = None
     start = time.monotonic()
@@ -569,17 +549,14 @@ async def _shop_single_item_in_tab(
           await shopping_list_provider.mark_failed(
             item.id, f"max_turns_exceeded: {settings.max_turns}"
           )
-          termcolor.cprint(f"[{agent_label}] Max turns exceeded; marking failed.", color="yellow")
+          logger.agent(agent_label).warning("Max turns exceeded; marking failed.")
           return FailedOutcome(error=f"max_turns_exceeded: {settings.max_turns}")
 
         if time.monotonic() - start > budget_seconds:
           await shopping_list_provider.mark_failed(
             item.id, f"time_budget_exceeded: {settings.time_budget}"
           )
-          termcolor.cprint(
-            f"[{agent_label}] Time budget exceeded; marking failed.",
-            color="yellow",
-          )
+          logger.agent(agent_label).warning("Time budget exceeded; marking failed.")
           return FailedOutcome(error=f"time_budget_exceeded: {settings.time_budget}")
 
         try:
@@ -587,9 +564,8 @@ async def _shop_single_item_in_tab(
           status = LoopStatus(res)
         except AuthExpiredError:
           needs_retry = True
-          termcolor.cprint(
-            f"[{agent_label}] Authentication expired during attempt {attempt}; scheduling re-auth.",
-            color="yellow",
+          logger.agent(agent_label).warning(
+            f"Authentication expired during attempt {attempt}; scheduling re-auth."
           )
           break
 
@@ -619,24 +595,21 @@ async def _shop_single_item_in_tab(
       if agent is not None:
         await agent.close()
     if needs_retry:
-      termcolor.cprint(
-        f"[{agent_label}] Authentication refreshed; retrying item from the beginning.",
-        color="yellow",
+      logger.agent(agent_label).warning(
+        "Authentication refreshed; retrying item from the beginning."
       )
       try:
         await state.ensure_pre_shop_auth(auth_manager)
       except Exception as auth_exc:  # noqa: BLE001
         await shopping_list_provider.mark_failed(item.id, f"auth_recovery_failed: {auth_exc}")
-        termcolor.cprint(
-          f"[{agent_label}] Authentication recovery failed ({auth_exc}); giving up on item.",
-          color="red",
+        logger.agent(agent_label).failure(
+          f"Authentication recovery failed ({auth_exc}); giving up on item."
         )
         return FailedOutcome(error=f"auth_recovery_failed: {auth_exc}")
       continue
 
   await shopping_list_provider.mark_failed(item.id, "auth_recovery_failed")
-  termcolor.cprint(
-    f"[{agent_label}] Authentication recovery exhausted; marking item as failed.",
-    color="red",
+  logger.agent(agent_label).failure(
+    "Authentication recovery exhausted; marking item as failed."
   )
   return FailedOutcome(error="auth_recovery_failed")
