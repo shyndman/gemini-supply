@@ -18,9 +18,9 @@ The CLI entry point lives in `src/gemini_supply/main.py`, with session orchestra
 ## Build, Test, and Development Commands
 - `uv sync` installs all runtime and dev dependencies.
 - `uv run gemini-supply shop --shopping-list ~/.config/gemini-supply/shopping_list.yaml --postal-code "M5V 1J1"` processes the default YAML shopping list. This command now runs the automated login flow up front; make sure `GEMINI_SUPPLY_METRO_USERNAME` / `GEMINI_SUPPLY_METRO_PASSWORD` are exported.
-- `ty check` runs static type checks; fix any warnings before submitting.
+- `ty check` runs static type checks; fix any warnings before submitting. (Install with `uv tool install ty` if not available.)
 - `uv run pytest -n auto -q` executes the async-heavy test suite quickly in parallel.
-- `ruff check . --fix` and `ruff format .` enforce linting and formatting.
+- `ruff check . --fix` and `ruff format .` enforce linting and formatting. (Install with `uv tool install ruff` if not available.)
 - If you change dependencies, bump `pyproject.toml` (`uv version --bump major|minor|patch`) and regenerate `uv.lock` with `uv pip compile pyproject.toml --upgrade`.
 - When you finish a task or cleanup pass, always run `ruff format .`, `ruff check . --fix`, and `ty check`, and fix every reported issue before you hand the work off.
 - Feature toggles: the product preference system lives under `src/gemini_supply/preferences/`. Normalizer settings (model, base URL, API key) are configurable via the `preferences` block in `config.yaml`.

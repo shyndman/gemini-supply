@@ -54,6 +54,7 @@ uv run pytest -n auto -q
 
 - Add new dependencies using `uv add <package>`, NOT by manually editing `pyproject.toml`
 - After completing a task or TODO list, always run `ruff format .`, `ruff check . --fix`, and `ty check`, and resolve every reported issue before considering the work done.
+- If `ruff` or `ty` aren't available, install them with `uv tool install ruff` or `uv tool install ty`.
 
 ### Coding Guidelines (Repo)
 
