@@ -116,7 +116,7 @@ async def run_shopping(
 ) -> int:
   provider = _build_provider(config.shopping_list, no_retry)
   logger = ActivityLog()
-  preferences = await _setup_preferences(config.preferences)
+  preferences = await _setup_preferences(config.preferences, logger)
 
   try:
     results = await _run_shopping_flow(provider, settings, logger, preferences)
@@ -140,13 +140,14 @@ def _build_provider(config: ShoppingListConfig, no_retry: bool) -> ShoppingListP
   raise ValueError("Unsupported shopping list configuration")
 
 
-async def _setup_preferences(pref_cfg: PreferencesConfig) -> PreferenceResources:
+async def _setup_preferences(pref_cfg: PreferencesConfig, logger: ActivityLog) -> PreferenceResources:
   pref_path = pref_cfg.file
   store = PreferenceStore(pref_path)
   normalizer = NormalizationAgent(
     model_name=pref_cfg.normalizer_model or DEFAULT_NORMALIZER_MODEL,
     base_url=pref_cfg.normalizer_api_base_url,
     api_key=pref_cfg.normalizer_api_key,
+    log=logger,
   )
   messenger: TelegramPreferenceMessenger | None = None
   tel_cfg = pref_cfg.telegram
