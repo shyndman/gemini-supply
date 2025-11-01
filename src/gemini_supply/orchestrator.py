@@ -60,6 +60,8 @@ from gemini_supply.profile import resolve_camoufox_exec, resolve_profile_dir
 from gemini_supply.prompt import build_shopper_prompt
 from gemini_supply.term import ActivityLog
 
+DEMO_WINDOW_POSITION = (8126, 430)
+
 
 @dataclass(slots=True)
 class PreferenceResources:
@@ -264,6 +266,7 @@ async def _run_shopping_flow(
     enforce_restrictions=True,
     executable_path=camoufox_exec,
     camoufox_options=build_camoufox_options(),
+    window_position=DEMO_WINDOW_POSITION,
   ) as host:
     auth_manager = AuthManager(host)
     state = OrchestrationState()

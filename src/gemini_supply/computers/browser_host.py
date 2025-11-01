@@ -102,6 +102,7 @@ class CamoufoxHost:
     enforce_restrictions: bool = True,
     executable_path: Path | None = None,
     camoufox_options: CamoufoxLaunchOptions | None = None,
+    window_position: tuple[int, int] | None = None,
   ) -> None:
     self._initial_url = initial_url
     self._init_scripts = init_scripts
@@ -112,6 +113,7 @@ class CamoufoxHost:
     self._user_data_dir = user_data_dir
 
     self._screen_size = screen_size
+    self._window_position = window_position
 
     # Runtime-managed Playwright objects
     self._playwright: playwright.async_api.Playwright | None = None
@@ -184,6 +186,13 @@ class CamoufoxHost:
     if "config" in launch_kwargs and isinstance(launch_kwargs["config"], dict):
       launch_kwargs["config"] = launch_kwargs["config"].copy()
     launch_kwargs.pop("headless", None)
+    if self._window_position is not None:
+      config = cast(dict[str, Any], launch_kwargs.setdefault("config", {}))
+      window_x, window_y = self._window_position
+      config["window.screenX"] = window_x
+      config["window.screenY"] = window_y
+      config["screen.availLeft"] = window_x
+      config["screen.availTop"] = window_y
 
     exe_path = str(self._executable_path) if self._executable_path else None
     camoufox_headless = headless if isinstance(headless, bool) else False

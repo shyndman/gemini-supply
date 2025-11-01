@@ -18,6 +18,7 @@ from gemini_supply.orchestrator import run_shopping, load_init_scripts
 from gemini_supply.profile import resolve_camoufox_exec, resolve_profile_dir
 
 PLAYWRIGHT_SCREEN_SIZE = (1024, 768)
+DEMO_WINDOW_POSITION = (8126, 430)
 
 
 def _concurrency_parser() -> Callable[[Sequence[str] | str], ConcurrencyConfig]:
@@ -96,6 +97,7 @@ class Browse(Command):
       enforce_restrictions=False,
       executable_path=camoufox_exec,
       camoufox_options=build_camoufox_options(),
+      window_position=DEMO_WINDOW_POSITION,
     ) as host:
       await host.new_page()
       print(f"Browser opened at {self.initial_url}. Press Ctrl+C to exit.")
@@ -124,6 +126,7 @@ class ClearStorage(Command):
       enforce_restrictions=False,
       executable_path=camoufox_exec,
       camoufox_options=build_camoufox_options(),
+      window_position=DEMO_WINDOW_POSITION,
     ) as host:
       page = await host.new_page()
       print(f"Browser opened at {initial_url}. Press Ctrl+C to exit.")
