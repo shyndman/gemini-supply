@@ -43,23 +43,45 @@ Centralize all operational/activity logging into `ActivityLog` with semantic met
 
 ## Proposed Design
 
+### Context-Based Access
+
+Use Python's `contextvars` to provide global access to `ActivityLog` without parameter passing noise:
+
+```python
+from gemini_supply.term import activity_log, set_activity_log
+
+# Setup once at orchestrator level
+logger = ActivityLog()
+set_activity_log(logger)
+
+# Use anywhere in the call tree
+activity_log().auth.operation("Opening login drawer")
+activity_log().agent("agent-1").success("Item added")
+```
+
+**Benefits:**
+- No parameter passing through every function
+- Properly scoped to async context (works with concurrent agents)
+- Easy to test (can override in test contexts)
+- Explicit initialization at orchestrator level
+
 ### Hierarchical API
 
 ```python
 # Static categories (properties)
-log.auth.operation("Opening login drawer")          # [auth] ...
-log.stage.success("Promoted stage to shopping")     # [stage] ...
-log.normalizer.thinking("Model processing...")       # [normalizer] ...
-log.denature.trace("On search results page")        # [denature] ...
-log.unrestricted.warning("Already inactive")        # [unrestricted] ...
+activity_log().auth.operation("Opening login drawer")          # [auth] ...
+activity_log().stage.success("Promoted stage to shopping")     # [stage] ...
+activity_log().normalizer.thinking("Model processing...")       # [normalizer] ...
+activity_log().denature.trace("On search results page")        # [denature] ...
+activity_log().unrestricted.warning("Already inactive")        # [unrestricted] ...
 
 # Dynamic categories (method)
-log.agent("agent-1").operation("Shopping for 'Milk'")  # [agent-1] ...
-log.prefix("custom").failure("Something broke")        # [custom] ...
+activity_log().agent("agent-1").operation("Shopping for 'Milk'")  # [agent-1] ...
+activity_log().prefix("custom").failure("Something broke")        # [custom] ...
 
 # No prefix (root methods)
-log.operation("General message")                     # No prefix
-log.success("Done")
+activity_log().operation("General message")                     # No prefix
+activity_log().success("Done")
 ```
 
 ### Semantic Methods
@@ -82,7 +104,25 @@ def trace(self, message: str) -> None:         # grey70 - low-level debug
 
 ### Phase 1: Extend ActivityLog
 
-1. **Add CategoryLogger helper class**:
+1. **Add contextvars setup** for global access:
+   ```python
+   from contextvars import ContextVar
+
+   _activity_log: ContextVar[ActivityLog | None] = ContextVar('activity_log', default=None)
+
+   def activity_log() -> ActivityLog:
+       """Get the current ActivityLog instance from context."""
+       log = _activity_log.get()
+       if log is None:
+           raise RuntimeError("ActivityLog not initialized. Call set_activity_log() first.")
+       return log
+
+   def set_activity_log(log: ActivityLog) -> None:
+       """Set the ActivityLog instance for the current context."""
+       _activity_log.set(log)
+   ```
+
+2. **Add CategoryLogger helper class**:
    ```python
    class CategoryLogger:
        """Prefixed logger delegate for a specific category."""
@@ -119,7 +159,7 @@ def trace(self, message: str) -> None:         # grey70 - low-level debug
            self._console.print(f"[grey70]\\[{self._prefix}] {message}[/grey70]")
    ```
 
-2. **Extend ActivityLog with new infrastructure**:
+3. **Extend ActivityLog with new infrastructure**:
    ```python
    class ActivityLog:
        def __init__(self) -> None:
@@ -169,7 +209,7 @@ def trace(self, message: str) -> None:         # grey70 - low-level debug
            self._console.print(f"[grey70]{message}[/grey70]")
    ```
 
-3. **Rich color mapping** (termcolor → Rich):
+4. **Rich color mapping** (termcolor → Rich):
    - `color="cyan"` → `[cyan]...[/cyan]`
    - `color="green"` → `[green]...[/green]`
    - `color="yellow"` → `[yellow]...[/yellow]`
@@ -190,8 +230,8 @@ def trace(self, message: str) -> None:         # grey70 - low-level debug
 5. `src/gemini_supply/orchestrator.py` (30 occurrences, mixed categories)
 
 #### For Each File:
-1. Pass `ActivityLog` instance to all functions/classes that need it
-2. Replace each `termcolor.cprint(...)` with appropriate `log.category.method(...)` call
+1. Add `from gemini_supply.term import activity_log` import
+2. Replace each `termcolor.cprint(...)` with appropriate `activity_log().category.method(...)` call
 3. Remove `termcolor` import
 4. Run linters and tests
 
@@ -204,7 +244,7 @@ termcolor.cprint("[auth] Opening login drawer.", "cyan")
 
 **After:**
 ```python
-log.auth.operation("Opening login drawer.")
+activity_log().auth.operation("Opening login drawer.")
 ```
 
 **Before:**
@@ -214,7 +254,7 @@ termcolor.cprint(f"[{agent_label}] Shopping for '{display_label}'.", color="cyan
 
 **After:**
 ```python
-log.agent(agent_label).operation(f"Shopping for '{display_label}'.")
+activity_log().agent(agent_label).operation(f"Shopping for '{display_label}'.")
 ```
 
 **Before:**
@@ -224,7 +264,7 @@ termcolor.cprint("Camoufox host ready.", color="green")
 
 **After:**
 ```python
-log.success("Camoufox host ready.")
+activity_log().success("Camoufox host ready.")
 ```
 
 **Before:**
@@ -237,7 +277,7 @@ termcolor.cprint(
 
 **After:**
 ```python
-log.agent(agent_label).operation(
+activity_log().agent(agent_label).operation(
     f"User override received. Using new text '{active_override.override_text}'."
 )
 ```
@@ -254,17 +294,19 @@ log.agent(agent_label).operation(
 
 ## Benefits
 
-1. **Type Safety**: IDE autocomplete for `log.auth.operation()` vs raw strings
-2. **Consistency**: All logging through one interface (Rich)
-3. **Maintainability**: Change color scheme in one place
-4. **Readability**: Intent-based names (`success()`) vs low-level (`cprint(..., "green")`)
-5. **Rich Features**: Access to Rich's advanced formatting (progress bars, panels, markup) now and in future
-6. **DRY**: Prefix formatting centralized in one place
+1. **No Parameter Passing**: Context-based access eliminates passing `log` through every function signature
+2. **Type Safety**: IDE autocomplete for `activity_log().auth.operation()` vs raw strings
+3. **Consistency**: All logging through one interface (Rich)
+4. **Maintainability**: Change color scheme in one place
+5. **Readability**: Intent-based names (`success()`) vs low-level (`cprint(..., "green")`)
+6. **Rich Features**: Access to Rich's advanced formatting (progress bars, panels, markup) now and in future
+7. **DRY**: Prefix formatting centralized in one place
+8. **Async-Safe**: `contextvars` properly scopes to async context, works with concurrent agents
 
 ## Open Questions
 
 1. Should we add convenience methods for common patterns?
-   - e.g., `log.auth.credential_step(field: str)` → "Waiting for {field} field."
+   - e.g., `activity_log().auth.credential_step(field: str)` → "Waiting for {field} field."
 
 2. Should we allow Rich markup in messages?
    - Rich supports `[bold]text[/bold]`, etc.
@@ -274,10 +316,12 @@ log.agent(agent_label).operation(
 
 ## Migration Checklist
 
+- [ ] Add contextvars setup (`activity_log()`, `set_activity_log()`) to `term.py`
 - [ ] Implement `CategoryLogger` class in `term.py`
 - [ ] Extend `ActivityLog` with semantic methods and category properties
 - [ ] Remove `lock` parameter from `ActivityLog.__init__`
 - [ ] Update `print_reasoning()` and `show_screenshot()` to remove lock usage
+- [ ] Add `set_activity_log(logger)` call in orchestrator's `run_shopping()`
 - [ ] Migrate `browser_host.py`
 - [ ] Migrate `auth/flow.py`
 - [ ] Migrate `preferences/normalizer.py`
