@@ -5,16 +5,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-DEFAULT_PROFILE = Path("~/.config/gemini-supply/camoufox-profile")
-ENV_PROFILE = "GEMINI_SUPPLY_USER_DATA_DIR"
+DEFAULT_PROFILE = Path("~/.config/generative-supply/camoufox-profile")
+ENV_PROFILE = "GENERATIVE_SUPPLY_USER_DATA_DIR"
 
 
 def resolve_profile_dir() -> Path:
   """Resolve the Camoufox persistent profile directory (Linux-only).
 
   Order of precedence:
-  - GEMINI_SUPPLY_USER_DATA_DIR environment variable, if set
-  - Default path: ~/.config/gemini-supply/camoufox-profile
+  - GENERATIVE_SUPPLY_USER_DATA_DIR environment variable, if set
+  - Default path: ~/.config/generative-supply/camoufox-profile
 
   Ensures the directory exists.
   """

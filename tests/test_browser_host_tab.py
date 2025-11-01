@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from gemini_supply.computers import CamoufoxHost, EnvState, ScreenSize
+from generative_supply.computers import CamoufoxHost, EnvState, ScreenSize
 
 # Tests cover the consolidated browser host/tab implementation.
 

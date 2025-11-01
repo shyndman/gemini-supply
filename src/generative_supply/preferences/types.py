@@ -12,7 +12,7 @@ from pydantic import (
 )
 from pydantic.types import StringConstraints
 
-from gemini_supply.utils.currency import parse_price_cents
+from generative_supply.utils.currency import parse_price_cents
 
 type NonEmptyString = Annotated[str, StringConstraints(min_length=1, strip_whitespace=True)]
 

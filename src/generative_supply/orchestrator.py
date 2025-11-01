@@ -13,17 +13,17 @@ from urllib.parse import urlparse
 import playwright
 import playwright.async_api
 
-from gemini_supply.agent import BrowserAgent, LoopStatus
-from gemini_supply.auth import AuthManager
-from gemini_supply.computers import AuthExpiredError, CamoufoxHost, build_camoufox_options
-from gemini_supply.config import (
+from generative_supply.agent import BrowserAgent, LoopStatus
+from generative_supply.auth import AuthManager
+from generative_supply.computers import AuthExpiredError, CamoufoxHost, build_camoufox_options
+from generative_supply.config import (
   AppConfig,
   HomeAssistantShoppingListConfig,
   PreferencesConfig,
   ShoppingListConfig,
   YAMLShoppingListConfig,
 )
-from gemini_supply.grocery import (
+from generative_supply.grocery import (
   HomeAssistantShoppingListProvider,
   ItemAddedResult,
   ItemNotFoundResult,
@@ -31,7 +31,7 @@ from gemini_supply.grocery import (
   ShoppingListProvider,
   YAMLShoppingListProvider,
 )
-from gemini_supply.models import (
+from generative_supply.models import (
   AddedOutcome,
   FailedOutcome,
   NotFoundOutcome,
@@ -40,7 +40,7 @@ from gemini_supply.models import (
   ShoppingSession,
   ShoppingSettings,
 )
-from gemini_supply.preferences import (
+from generative_supply.preferences import (
   DEFAULT_NAG_STRINGS,
   DEFAULT_NORMALIZER_MODEL,
   NormalizationAgent,
@@ -54,9 +54,9 @@ from gemini_supply.preferences import (
   TelegramPreferenceMessenger,
   TelegramSettings,
 )
-from gemini_supply.profile import resolve_camoufox_exec, resolve_profile_dir
-from gemini_supply.prompt import build_shopper_prompt
-from gemini_supply.term import ActivityLog, activity_log, set_activity_log
+from generative_supply.profile import resolve_camoufox_exec, resolve_profile_dir
+from generative_supply.prompt import build_shopper_prompt
+from generative_supply.term import ActivityLog, activity_log, set_activity_log
 
 DEMO_WINDOW_POSITION = (8126, 430)
 

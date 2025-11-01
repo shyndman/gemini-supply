@@ -6,10 +6,10 @@ from typing import Annotated, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from gemini_supply.utils.strings import trim
+from generative_supply.utils.strings import trim
 
-DEFAULT_CONFIG_PATH = Path("~/.config/gemini-supply/config.yaml").expanduser()
-DEFAULT_PREFERENCES_PATH = Path("~/.config/gemini-supply/preferences.yaml").expanduser()
+DEFAULT_CONFIG_PATH = Path("~/.config/generative-supply/config.yaml").expanduser()
+DEFAULT_PREFERENCES_PATH = Path("~/.config/generative-supply/preferences.yaml").expanduser()
 MAX_CONCURRENCY = 20
 
 

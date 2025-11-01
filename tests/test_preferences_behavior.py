@@ -5,14 +5,14 @@ from typing import cast
 
 import pytest
 
-from gemini_supply.grocery import (
+from generative_supply.grocery import (
   HomeAssistantShoppingListProvider,
   ItemAddedResult,
   ShoppingSummary,
 )
-from gemini_supply.models import AddedOutcome, ShoppingResults
-from gemini_supply.orchestrator import _is_specific_request
-from gemini_supply.preferences import (
+from generative_supply.models import AddedOutcome, ShoppingResults
+from generative_supply.orchestrator import _is_specific_request
+from generative_supply.preferences import (
   NormalizationAgent,
   NormalizedItem,
   PreferenceCoordinator,
@@ -196,7 +196,7 @@ def test_shopping_results_track_default_flags() -> None:
 
 
 def test_home_assistant_summary_marks_default_notes() -> None:
-  from gemini_supply.config import HomeAssistantShoppingListConfig
+  from generative_supply.config import HomeAssistantShoppingListConfig
 
   config = HomeAssistantShoppingListConfig(
     provider="home_assistant",

@@ -1,5 +1,5 @@
 #!/usr/bin/env -S uv run
-"""Send a Telegram message using gemini-supply config.
+"""Send a Telegram message using generative-supply config.
 
 The message text is passed as a positional argument and sent verbatim,
 without any escaping or modification.
@@ -17,12 +17,12 @@ from pathlib import Path
 import requests
 import requests.exceptions
 
-from gemini_supply.config import AppConfig, load_config
+from generative_supply.config import AppConfig, load_config
 
 
 def _build_parser() -> argparse.ArgumentParser:
   parser = argparse.ArgumentParser(
-    description="Send a Telegram message using gemini-supply config.",
+    description="Send a Telegram message using generative-supply config.",
   )
   parser.add_argument(
     "message",
@@ -32,7 +32,7 @@ def _build_parser() -> argparse.ArgumentParser:
     "--config",
     type=Path,
     default=None,
-    help="Path to config.yaml (defaults to gemini-supply standard location)",
+    help="Path to config.yaml (defaults to generative-supply standard location)",
   )
   parser.add_argument(
     "--timeout",

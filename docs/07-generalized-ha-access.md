@@ -311,7 +311,7 @@ If tests fail at any point, we know exactly what broke.
 
 ### Home Assistant Config
 
-Update `~/.config/gemini-supply/config.yaml`:
+Update `~/.config/generative-supply/config.yaml`:
 
 ```yaml
 shopping_list:

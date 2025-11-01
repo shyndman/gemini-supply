@@ -6,7 +6,7 @@ from typing import cast
 from pydantic_ai import Agent
 from pydantic_ai.models.google import GoogleModel, GoogleModelSettings
 from pydantic_ai.providers.google import GoogleProvider
-from gemini_supply.term import activity_log
+from generative_supply.term import activity_log
 from .constants import DEFAULT_NORMALIZER_MODEL
 from .types import _PartialNormalizedItem, NormalizedItem
 

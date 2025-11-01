@@ -1,5 +1,5 @@
-# gemini-supply sample config
-# Copy to ~/.config/gemini-supply/config.yaml
+# generative-supply sample config
+# Copy to ~/.config/generative-supply/config.yaml
 # Keep this file private (do not commit real tokens).
 
 # Shopping list configuration
@@ -12,7 +12,7 @@ shopping_list:
 # Option 2: YAML file provider (uncomment to use)
 # shopping_list:
 #   provider: "yaml"
-#   path: "~/.config/gemini-supply/shopping_list.yaml"
+#   path: "~/.config/generative-supply/shopping_list.yaml"
 
 # Parallelism
 # Can be an integer >= 1, or "len" to match the number of items (capped at 20)
@@ -20,7 +20,7 @@ concurrency: 3  # defaults to "len" if omitted
 
 # Product preferences (required)
 preferences:
-  file: "~/.config/gemini-supply/preferences.yaml"  # where canonical mappings are stored (optional, defaults to this path)
+  file: "~/.config/generative-supply/preferences.yaml"  # where canonical mappings are stored (optional, defaults to this path)
   normalizer_model: "qwen3:1.7b"  # OpenAI-compatible model name used for normalization (required)
   normalizer_api_base_url: "http://ollama/v1"  # OpenAI-compatible endpoint (required)
   normalizer_api_key: ""  # optional key when hitting remote provider; leave blank or omit for local Ollama

@@ -50,7 +50,7 @@ This document describes how to integrate the grocery agent with Home Assistant's
 
 ### Configuration
 
-File: `~/.config/gemini-supply/config.yaml`
+File: `~/.config/generative-supply/config.yaml`
 
 ```yaml
 shopping_list:
@@ -144,9 +144,9 @@ No HA automations are required. The provider reads and updates the Shopping list
 5. Name it "Grocery Agent"
 6. Copy the token
 
-### 2. Configure gemini-supply
+### 2. Configure generative-supply
 
-Create `~/.config/gemini-supply/config.yaml`:
+Create `~/.config/generative-supply/config.yaml`:
 
 ```yaml
 shopping_list:

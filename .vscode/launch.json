@@ -5,10 +5,10 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "gemini-supply shop",
+      "name": "generative-supply shop",
       "type": "debugpy",
       "request": "launch",
-      "program": "${workspaceFolder}/.venv/bin/gemini-supply",
+      "program": "${workspaceFolder}/.venv/bin/generative-supply",
       "args": [
         "shop"
       ],

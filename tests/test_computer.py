@@ -2,7 +2,7 @@ from typing import Literal
 
 import pytest
 
-from gemini_supply.computers import Computer, EnvState, ScreenSize
+from generative_supply.computers import Computer, EnvState, ScreenSize
 
 
 class MockComputer(Computer):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from gemini_supply.term import ActivityLog, set_activity_log
+from generative_supply.term import ActivityLog, set_activity_log
 
 
 @pytest.fixture(autouse=True)

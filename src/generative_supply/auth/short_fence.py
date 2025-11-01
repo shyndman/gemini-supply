@@ -19,7 +19,7 @@ class _Needle:
 
 def _load_needle(size: int) -> _Needle:
   needle_image = Image.open(
-    BytesIO(files("gemini_supply.auth").joinpath(f"needle_{size}.png").read_bytes())
+    BytesIO(files("generative_supply.auth").joinpath(f"needle_{size}.png").read_bytes())
   ).convert("RGB")
   needle_mat = cv2.cvtColor(np.array(needle_image), cv2.COLOR_RGB2BGR)
   return _Needle(image=needle_image, size=size, mat=needle_mat)

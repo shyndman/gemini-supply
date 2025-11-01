@@ -11,11 +11,11 @@ import asyncio
 import sys
 from pathlib import Path
 
-# Add src to path so we can import gemini_supply
+# Add src to path so we can import generative_supply
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from gemini_supply.config import load_config
-from gemini_supply.preferences.normalizer import NormalizationAgent
+from generative_supply.config import load_config
+from generative_supply.preferences.normalizer import NormalizationAgent
 
 
 async def main() -> None:

@@ -1,5 +1,5 @@
 #!/usr/bin/env -S uv run
-"""Call Home Assistant endpoints using gemini-supply config."""
+"""Call Home Assistant endpoints using generative-supply config."""
 
 from __future__ import annotations
 
@@ -12,18 +12,18 @@ from pathlib import Path
 import requests
 import requests.exceptions
 
-from gemini_supply.config import AppConfig, HomeAssistantShoppingListConfig, load_config
+from generative_supply.config import AppConfig, HomeAssistantShoppingListConfig, load_config
 
 
 def _build_parser() -> argparse.ArgumentParser:
   parser = argparse.ArgumentParser(
-    description="Call Home Assistant endpoints using gemini-supply config.",
+    description="Call Home Assistant endpoints using generative-supply config.",
   )
   parser.add_argument(
     "--config",
     type=Path,
     default=None,
-    help="Path to config.yaml (defaults to gemini-supply standard location)",
+    help="Path to config.yaml (defaults to generative-supply standard location)",
   )
   parser.add_argument(
     "--timeout",

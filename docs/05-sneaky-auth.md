@@ -28,7 +28,7 @@ these notes remain for reference.
    - Receive a bounding box in a 0–1000 coordinate space. Scale to the container size, select a random point within the central two-thirds of the box, and click there.
    - Allow up to ~20 attempts with small random jitters; rely on the subsequent page navigation as the success signal.
 7. Fill the login form:
-   - Credentials come from environment variables `GEMINI_SUPPLY_METRO_USERNAME` and `GEMINI_SUPPLY_METRO_PASSWORD`. The user resolves these through 1Password CLI secret references before running the script.
+   - Credentials come from environment variables `GENERATIVE_SUPPLY_METRO_USERNAME` and `GENERATIVE_SUPPLY_METRO_PASSWORD`. The user resolves these through 1Password CLI secret references before running the script.
    - Hover + focus `#signInName`, type the username, press `Tab`.
    - Focus `#password`, type the password, press `Enter`.
 8. Wait for the redirect back to metro.ca and re-run `is_authenticated()` to confirm the session. Close the host when complete.
@@ -47,7 +47,7 @@ these notes remain for reference.
 - The script converts the 0–1000 coordinates to page space using the container dimensions and offsets, then chooses a point in the inner two-thirds rectangle to click.
 
 ## CLI Integration
-- Add a temporary console script entry (e.g., `gemini-supply-auth-scratch`) in `pyproject.toml`.
+- Add a temporary console script entry (e.g., `generative-supply-auth-scratch`) in `pyproject.toml`.
 - The command runs `auth_scratch.py` directly; no additional flags are required. If future experimentation needs knobs (headless mode, alternate proxy), they can be added ad hoc.
 
 ## Future Integration Notes

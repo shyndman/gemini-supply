@@ -42,10 +42,10 @@ from pydantic import BaseModel
 from rich.console import Console
 from rich.table import Table
 
-from gemini_supply.computers import Computer, EnvState
-from gemini_supply.grocery import ItemAddedResult, ItemNotFoundResult
-from gemini_supply.preferences import ProductDecision
-from gemini_supply.term import ActivityLog, activity_log
+from generative_supply.computers import Computer, EnvState
+from generative_supply.grocery import ItemAddedResult, ItemNotFoundResult
+from generative_supply.preferences import ProductDecision
+from generative_supply.term import activity_log
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
 PREDEFINED_COMPUTER_USE_FUNCTIONS = [
@@ -372,7 +372,7 @@ class BrowserAgent:
       if isinstance(fc_result, EnvState):
         env_state = cast(EnvState, fc_result)
         # Render the screenshot in the terminal using term-image
-        img_enabled = os.environ.get("GEMINI_SUPPLY_IMG_ENABLE", "1").strip().lower()
+        img_enabled = os.environ.get("GENERATIVE_SUPPLY_IMG_ENABLE", "1").strip().lower()
         show_img = img_enabled not in ("0", "false", "no")
 
         if show_img:

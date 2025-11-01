@@ -5,7 +5,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
-from gemini_supply.utils.currency import parse_price_cents
+from generative_supply.utils.currency import parse_price_cents
 
 
 class ItemAddedResult(BaseModel):

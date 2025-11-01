@@ -1,5 +1,5 @@
 import textwrap
-from gemini_supply.preferences import NormalizedItem, PreferenceRecord
+from generative_supply.preferences import NormalizedItem, PreferenceRecord
 
 
 def build_shopper_prompt(

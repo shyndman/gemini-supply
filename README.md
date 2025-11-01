@@ -11,9 +11,9 @@ Quick Start
 
 - Set environment:
   - `export GEMINI_API_KEY="..."`
-  - `export GEMINI_SUPPLY_METRO_USERNAME="email@example.com"`
-  - `export GEMINI_SUPPLY_METRO_PASSWORD="super-secret"`
-  - Optional profile override: `export GEMINI_SUPPLY_USER_DATA_DIR=...`
+  - `export GENERATIVE_SUPPLY_METRO_USERNAME="email@example.com"`
+  - `export GENERATIVE_SUPPLY_METRO_PASSWORD="super-secret"`
+  - Optional profile override: `export GENERATIVE_SUPPLY_USER_DATA_DIR=...`
 
 Authentication
 --------------
@@ -28,10 +28,10 @@ Shop
 Process all uncompleted items from a YAML shopping list with the authenticated session.
 
 - YAML provider:
-  - `uv run gemini-supply shop --shopping-list ~/.config/gemini-supply/shopping_list.yaml --postal-code "M5V 1J1"`
+  - `uv run generative-supply shop --shopping-list ~/.config/generative-supply/shopping_list.yaml --postal-code "M5V 1J1"`
 
 - Home Assistant provider (via config):
-  - Create `~/.config/gemini-supply/config.yaml` (see `config.sample.yaml`)
+  - Create `~/.config/generative-supply/config.yaml` (see `config.sample.yaml`)
   - Minimal config:
     ```yaml
     shopping_list:
@@ -49,7 +49,7 @@ Process all uncompleted items from a YAML shopping list with the authenticated s
     # optional
     concurrency: 3
     ```
-  - Run: `uv run gemini-supply shop`
+  - Run: `uv run generative-supply shop`
   - Details: see `docs/01-home-assistant-shopping-lists.md`
 
 Product preferences & Telegram prompts
@@ -83,6 +83,6 @@ Behavior & Notes
 Troubleshooting
 ---------------
 
-- If the automated login reports a failure, verify `GEMINI_SUPPLY_METRO_USERNAME` / `GEMINI_SUPPLY_METRO_PASSWORD`
+- If the automated login reports a failure, verify `GENERATIVE_SUPPLY_METRO_USERNAME` / `GENERATIVE_SUPPLY_METRO_PASSWORD`
   and rerun the command. The workflow will refresh credentials for you when the session expires.
-- The profile directory persists cookies/tokens automatically. To start fresh, delete the folder or set a different `GEMINI_SUPPLY_USER_DATA_DIR`.
+- The profile directory persists cookies/tokens automatically. To start fresh, delete the folder or set a different `GENERATIVE_SUPPLY_USER_DATA_DIR`.

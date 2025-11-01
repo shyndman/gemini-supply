@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
-from gemini_supply.grocery import ItemAddedResult
+from generative_supply.grocery import ItemAddedResult
 
 from .exceptions import OverrideRequest, PreferenceOverrideRequested
 from .messenger import TelegramPreferenceMessenger

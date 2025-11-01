@@ -2,16 +2,16 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Literal, TYPE_CHECKING
 
-from gemini_supply.computers import ScreenSize
-from gemini_supply.config import ConcurrencyConfig
-from gemini_supply.grocery import ShoppingListItem, ShoppingListProvider
-from gemini_supply.grocery.types import (
+from generative_supply.computers import ScreenSize
+from generative_supply.config import ConcurrencyConfig
+from generative_supply.grocery import ShoppingListItem, ShoppingListProvider
+from generative_supply.grocery.types import (
   ItemAddedResult,
   ItemNotFoundResult,
   ShoppingSummary,
 )
-from gemini_supply.preferences import PreferenceItemSession
-from gemini_supply.preferences.types import ProductChoice, ProductDecision
+from generative_supply.preferences import PreferenceItemSession
+from generative_supply.preferences.types import ProductChoice, ProductDecision
 
 if TYPE_CHECKING:
   pass

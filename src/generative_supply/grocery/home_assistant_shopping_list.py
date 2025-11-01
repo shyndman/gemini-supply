@@ -6,8 +6,8 @@ from typing import cast
 import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
-from gemini_supply.config import HomeAssistantShoppingListConfig
-from gemini_supply.grocery.types import (
+from generative_supply.config import HomeAssistantShoppingListConfig
+from generative_supply.grocery.types import (
   ItemAddedResult,
   ItemNotFoundResult,
   ItemStatus,

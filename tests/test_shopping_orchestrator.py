@@ -4,15 +4,15 @@ from dataclasses import dataclass
 
 import pytest
 
-from gemini_supply.config import ConcurrencyConfig
-from gemini_supply.grocery import (
+from generative_supply.config import ConcurrencyConfig
+from generative_supply.grocery import (
   ItemAddedResult,
   ItemNotFoundResult,
   ItemStatus,
   ShoppingListItem,
   ShoppingSummary,
 )
-from gemini_supply.orchestrator import OrchestrationStage, OrchestrationState
+from generative_supply.orchestrator import OrchestrationStage, OrchestrationState
 
 
 def _items(count: int) -> list[ShoppingListItem]:

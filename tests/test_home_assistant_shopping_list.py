@@ -6,11 +6,11 @@ from unittest.mock import patch
 
 import pytest
 
-from gemini_supply.config import HomeAssistantShoppingListConfig
-from gemini_supply.grocery.home_assistant_shopping_list import (
+from generative_supply.config import HomeAssistantShoppingListConfig
+from generative_supply.grocery.home_assistant_shopping_list import (
   HomeAssistantShoppingListProvider,
 )
-from gemini_supply.grocery.types import (
+from generative_supply.grocery.types import (
   ItemAddedResult,
   ItemNotFoundResult,
   ItemStatus,
@@ -48,7 +48,7 @@ class TestGetUncompletedItems:
   ) -> None:
     """Should only return items where complete=False."""
     with patch.object(provider, "_get_items") as mock_get:
-      from gemini_supply.grocery.home_assistant_shopping_list import _HomeAssistantItemModel
+      from generative_supply.grocery.home_assistant_shopping_list import _HomeAssistantItemModel
 
       mock_get.return_value = [
         _HomeAssistantItemModel(uid="1", summary="Milk", status="needs_action"),
@@ -65,7 +65,7 @@ class TestGetUncompletedItems:
   async def test_filters_empty_names(self, provider: HomeAssistantShoppingListProvider) -> None:
     """Should skip items with empty or whitespace-only names."""
     with patch.object(provider, "_get_items") as mock_get:
-      from gemini_supply.grocery.home_assistant_shopping_list import _HomeAssistantItemModel
+      from generative_supply.grocery.home_assistant_shopping_list import _HomeAssistantItemModel
 
       mock_get.return_value = [
         _HomeAssistantItemModel(uid="1", summary="", status="needs_action"),
@@ -83,7 +83,7 @@ class TestGetUncompletedItems:
   ) -> None:
     """Should skip items that don't have an ID."""
     with patch.object(provider, "_get_items") as mock_get:
-      from gemini_supply.grocery.home_assistant_shopping_list import _HomeAssistantItemModel
+      from generative_supply.grocery.home_assistant_shopping_list import _HomeAssistantItemModel
 
       mock_get.return_value = [
         _HomeAssistantItemModel(uid="", summary="Milk", status="needs_action"),
@@ -103,7 +103,7 @@ class TestGetUncompletedItems:
       patch.object(provider, "_get_items") as mock_get,
       patch.object(provider, "_update_item") as mock_update,
     ):
-      from gemini_supply.grocery.home_assistant_shopping_list import _HomeAssistantItemModel
+      from generative_supply.grocery.home_assistant_shopping_list import _HomeAssistantItemModel
 
       mock_get.return_value = [
         _HomeAssistantItemModel(uid="1", summary="Milk", status="needs_action"),
@@ -127,7 +127,7 @@ class TestGetUncompletedItems:
   ) -> None:
     """Should strip known tags from item names."""
     with patch.object(provider, "_get_items") as mock_get:
-      from gemini_supply.grocery.home_assistant_shopping_list import _HomeAssistantItemModel
+      from generative_supply.grocery.home_assistant_shopping_list import _HomeAssistantItemModel
 
       mock_get.return_value = [
         _HomeAssistantItemModel(uid="1", summary="Milk #not_found", status="needs_action"),
@@ -147,7 +147,7 @@ class TestGetUncompletedItems:
   ) -> None:
     """Should skip items with any tag when no_retry=True."""
     with patch.object(provider_no_retry, "_get_items") as mock_get:
-      from gemini_supply.grocery.home_assistant_shopping_list import _HomeAssistantItemModel
+      from generative_supply.grocery.home_assistant_shopping_list import _HomeAssistantItemModel
 
       mock_get.return_value = [
         _HomeAssistantItemModel(uid="1", summary="Milk", status="needs_action"),
@@ -165,7 +165,7 @@ class TestGetUncompletedItems:
   ) -> None:
     """All returned items should have NEEDS_ACTION status."""
     with patch.object(provider, "_get_items") as mock_get:
-      from gemini_supply.grocery.home_assistant_shopping_list import _HomeAssistantItemModel
+      from generative_supply.grocery.home_assistant_shopping_list import _HomeAssistantItemModel
 
       mock_get.return_value = [
         _HomeAssistantItemModel(uid="1", summary="Milk", status="needs_action"),

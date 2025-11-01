@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from gemini_supply.cli import run
-from gemini_supply.log import setup_logging
+from generative_supply.cli import run
+from generative_supply.log import setup_logging
 
 
 def main() -> int:

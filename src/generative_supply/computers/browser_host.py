@@ -23,7 +23,7 @@ from camoufox.async_api import AsyncNewBrowser  # type: ignore
 from camoufox.utils import launch_options as camoufox_launch_options
 from playwright.async_api import async_playwright
 
-from gemini_supply.term import activity_log
+from generative_supply.term import activity_log
 
 from .agent_managed_page import AgentManagedPage
 from .computer import ScreenSize

@@ -27,8 +27,8 @@ uv sync
 
 # Configure APIs / credentials
 export GEMINI_API_KEY="YOUR_KEY"
-export GEMINI_SUPPLY_METRO_USERNAME="email@example.com"
-export GEMINI_SUPPLY_METRO_PASSWORD="super-secret"
+export GENERATIVE_SUPPLY_METRO_USERNAME="email@example.com"
+export GENERATIVE_SUPPLY_METRO_PASSWORD="super-secret"
 ```
 
 Note: No extra Playwright installs are required for the happy path. If your system is missing OS libs, you can run: `uv run playwright install-deps firefox && uv run playwright install firefox`.
@@ -38,7 +38,7 @@ Note: No extra Playwright installs are required for the happy path. If your syst
 1. Shop all uncompleted items (auto-login runs first):
 
 ```bash
-uv run gemini-supply shop --shopping-list ~/.config/gemini-supply/shopping_list.yaml \
+uv run generative-supply shop --shopping-list ~/.config/generative-supply/shopping_list.yaml \
   --time-budget 5m --max-turns 40 --model gemini-2.5-computer-use-preview-10-2025 \
   --postal-code "M5V 1J1"
 ```
@@ -75,9 +75,9 @@ uv run pytest -n auto -q
 ## Environment
 
 - `GEMINI_API_KEY`: Gemini API key (required)
-- `GEMINI_SUPPLY_METRO_USERNAME` / `GEMINI_SUPPLY_METRO_PASSWORD`: metro.ca credentials for automated login (required)
-- `GEMINI_SUPPLY_USER_DATA_DIR`: Override profile directory
-- Config file (optional): `~/.config/gemini-supply/config.yaml` supports:
+- `GENERATIVE_SUPPLY_METRO_USERNAME` / `GENERATIVE_SUPPLY_METRO_PASSWORD`: metro.ca credentials for automated login (required)
+- `GENERATIVE_SUPPLY_USER_DATA_DIR`: Override profile directory
+- Config file (optional): `~/.config/generative-supply/config.yaml` supports:
   - `shopping_list.provider: home_assistant`
   - `home_assistant.url`, `home_assistant.token`
   - `concurrency`

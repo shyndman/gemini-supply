@@ -10,12 +10,12 @@ import clypi.parsers as cp
 from clypi import Command, arg
 from typing_extensions import override
 from playwright.async_api import expect
-from gemini_supply.computers import ScreenSize
-from gemini_supply.computers.browser_host import CamoufoxHost, build_camoufox_options
-from gemini_supply.config import DEFAULT_CONFIG_PATH, ConcurrencyConfig, load_config
-from gemini_supply.models import ShoppingSettings
-from gemini_supply.orchestrator import run_shopping, load_init_scripts
-from gemini_supply.profile import resolve_camoufox_exec, resolve_profile_dir
+from generative_supply.computers import ScreenSize
+from generative_supply.computers.browser_host import CamoufoxHost, build_camoufox_options
+from generative_supply.config import DEFAULT_CONFIG_PATH, ConcurrencyConfig, load_config
+from generative_supply.models import ShoppingSettings
+from generative_supply.orchestrator import run_shopping, load_init_scripts
+from generative_supply.profile import resolve_camoufox_exec, resolve_profile_dir
 
 PLAYWRIGHT_SCREEN_SIZE = (1024, 768)
 DEMO_WINDOW_POSITION = (8126, 430)
@@ -49,7 +49,7 @@ class Shop(Command):
     help="Skip items already tagged (#not_found, #out_of_stock, #failed, #dupe)",
   )
   config: Path | None = arg(
-    None, help="Path to config.yaml (defaults to ~/.config/gemini-supply/config.yaml)"
+    None, help="Path to config.yaml (defaults to ~/.config/generative-supply/config.yaml)"
   )
 
   @override

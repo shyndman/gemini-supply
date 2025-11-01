@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from google.genai import types
 
-from gemini_supply.agent import BrowserAgent
-from gemini_supply.computers import Computer, EnvState, ScreenSize
+from generative_supply.agent import BrowserAgent
+from generative_supply.computers import Computer, EnvState, ScreenSize
 
 
 class MockComputer(Computer):

@@ -11,9 +11,9 @@ from typing import AsyncIterator, Awaitable, Callable, TypeAlias
 from playwright.async_api import Page, Position
 from playwright.async_api import TimeoutError as PlaywrightTimeout
 
-from gemini_supply.auth.short_fence import find_interactive_element_click_location
-from gemini_supply.computers import CamoufoxHost
-from gemini_supply.term import activity_log, display_image_bytes_in_terminal
+from generative_supply.auth.short_fence import find_interactive_element_click_location
+from generative_supply.computers import CamoufoxHost
+from generative_supply.term import activity_log, display_image_bytes_in_terminal
 
 SHORT_FENCE_ATTEMPTS = 4
 SHORT_FENCE_WAIT_MS = 2000
@@ -83,11 +83,11 @@ async def _perform_login(host: CamoufoxHost) -> None:
 
 
 def _resolve_credentials() -> AuthCredentials:
-  username = os.environ.get("GEMINI_SUPPLY_METRO_USERNAME", "").strip()
-  password = os.environ.get("GEMINI_SUPPLY_METRO_PASSWORD", "").strip()
+  username = os.environ.get("GENERATIVE_SUPPLY_METRO_USERNAME", "").strip()
+  password = os.environ.get("GENERATIVE_SUPPLY_METRO_PASSWORD", "").strip()
   if not username or not password:
     raise AuthenticationError(
-      "Set GEMINI_SUPPLY_METRO_USERNAME and GEMINI_SUPPLY_METRO_PASSWORD for automated auth."
+      "Set GENERATIVE_SUPPLY_METRO_USERNAME and GENERATIVE_SUPPLY_METRO_PASSWORD for automated auth."
     )
   return AuthCredentials(username=username, password=password)
 

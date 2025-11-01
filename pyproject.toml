@@ -1,5 +1,5 @@
 [project]
-name = "gemini-supply"
+name = "generative-supply"
 version = "0.2.0"
 description = "Add your description here"
 readme = "README.md"
@@ -34,8 +34,8 @@ dependencies = [
 ]
 
 [project.scripts]
-gemini-supply = "gemini_supply.__main__:main"
-gemini-supply-auth-scratch = "gemini_supply.auth_scratch:main"
+generative-supply = "generative_supply.__main__:main"
+generative-supply-auth-scratch = "generative_supply.auth_scratch:main"
 
 [build-system]
 requires = ["uv_build>=0.8.4,<0.9.0"]

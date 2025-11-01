@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the design and implementation plan for enhancing gemini-supply to automatically add items from a shopping list to a metro.ca shopping cart using the Gemini Computer Use API.
+This document describes the design and implementation plan for enhancing generative-supply to automatically add items from a shopping list to a metro.ca shopping cart using the Gemini Computer Use API.
 
 **Scope**: Single-user personal automation for grocery shopping
 **Target Site**: metro.ca (Canadian grocery delivery)
@@ -11,7 +11,7 @@ This document describes the design and implementation plan for enhancing gemini-
 ## Use Case
 
 1. User adds items to shopping list over time
-2. User runs the agent with a shopping list path: `uv run gemini-supply shop --shopping-list ~/.config/gemini-supply/shopping_list.yaml`
+2. User runs the agent with a shopping list path: `uv run generative-supply shop --shopping-list ~/.config/generative-supply/shopping_list.yaml`
 3. Agent processes ALL uncompleted items sequentially (one agent instance per item)
 4. For each item:
    - Agent adds item to cart
@@ -131,7 +131,7 @@ This document describes the design and implementation plan for enhancing gemini-
 │    - Total estimated cost                                   │
 │                                                              │
 │  Profile (Persistent):                                      │
-│    ~/.config/gemini-supply/camoufox-profile                 │
+│    ~/.config/generative-supply/camoufox-profile                 │
 │    (cookies/tokens persist as you browse)                   │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
@@ -156,7 +156,7 @@ Types needed:
 
 **Built-in Implementation: YAMLShoppingListProvider**
 
-Reads/writes to `~/.config/gemini-supply/shopping_list.yaml` with items array containing:
+Reads/writes to `~/.config/generative-supply/shopping_list.yaml` with items array containing:
 - Basic fields: id, name, status
 - Optional fields: tags (array), explanation (string for failures)
 
@@ -164,7 +164,7 @@ Behavior:
 - `mark_completed()`: Updates status to "completed"
 - `mark_not_found()`: Adds "#404" tag and stores explanation
 - `mark_failed()`: Adds "#failed" tag and stores error
-- `send_summary()`: Writes formatted summary to `~/.config/gemini-supply/last_shopping_summary.txt`
+- `send_summary()`: Writes formatted summary to `~/.config/generative-supply/last_shopping_summary.txt`
 
 **Alternative Implementations:**
 
@@ -175,7 +175,7 @@ See separate documentation for integrations:
 
 **Manual Invocation (Subcommand):**
 ```bash
-uv run gemini-supply shop --shopping-list ~/.config/gemini-supply/shopping_list.yaml
+uv run generative-supply shop --shopping-list ~/.config/generative-supply/shopping_list.yaml
 ```
 
 Where `--shopping-list` points to a YAML shopping list file. This subcommand:
@@ -188,10 +188,10 @@ Where `--shopping-list` points to a YAML shopping list file. This subcommand:
 
 **Automated Setup:**
 - Provide metro.ca credentials via environment variables:
-  - `GEMINI_SUPPLY_METRO_USERNAME`
-  - `GEMINI_SUPPLY_METRO_PASSWORD`
+  - `GENERATIVE_SUPPLY_METRO_USERNAME`
+  - `GENERATIVE_SUPPLY_METRO_PASSWORD`
 - The shopping orchestrator runs the automated login routine before any agents start.
-- Default profile (Linux): `~/.config/gemini-supply/camoufox-profile`
+- Default profile (Linux): `~/.config/generative-supply/camoufox-profile`
 
 **Automated Usage:**
 - Browser always launches a persistent context bound to the profile directory
@@ -412,15 +412,15 @@ Delivered via `provider.send_summary()`.
 
 **Directory Structure:**
 ```
-~/.config/gemini-supply/
+~/.config/generative-supply/
 ├── camoufox-profile/            # Persistent browser profile (cookies/tokens)
 └── config.yaml                  # Optional: future configuration
 ```
 
 **First Run Setup:**
-- Create config directory: `mkdir -p ~/.config/gemini-supply`
-- Export `GEMINI_SUPPLY_METRO_USERNAME` / `GEMINI_SUPPLY_METRO_PASSWORD`
-- Run `uv run gemini-supply shop ...` to trigger automated login
+- Create config directory: `mkdir -p ~/.config/generative-supply`
+- Export `GENERATIVE_SUPPLY_METRO_USERNAME` / `GENERATIVE_SUPPLY_METRO_PASSWORD`
+- Run `uv run generative-supply shop ...` to trigger automated login
 
 **Gitignore:**
 ```
@@ -453,7 +453,7 @@ src/gemini_supply/
 - Support YAML file read/write for items and state
 
 **1.3 Configuration Management**
-- Create `config.py` to handle loading from `~/.config/gemini-supply/`
+- Create `config.py` to handle loading from `~/.config/generative-supply/`
 - Validate configuration on startup
 
 ### Phase 2: Authenticated Metro Browser

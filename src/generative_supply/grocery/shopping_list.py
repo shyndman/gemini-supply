@@ -8,7 +8,7 @@ from typing import Protocol, cast
 import aiofiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from gemini_supply.grocery.types import (
+from generative_supply.grocery.types import (
   ItemAddedResult,
   ItemNotFoundResult,
   ItemStatus,
