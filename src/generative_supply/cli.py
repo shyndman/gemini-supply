@@ -81,6 +81,10 @@ class Browse(Command):
     # Force headed mode
     os.environ["PLAYWRIGHT_HEADLESS"] = "false"
 
+    logger = ActivityLog()
+    set_activity_log(logger)
+    logger.operation(f"Starting browse session at {self.initial_url}.")
+
     profile_dir = resolve_profile_dir()
     camoufox_exec = resolve_camoufox_exec()
 
