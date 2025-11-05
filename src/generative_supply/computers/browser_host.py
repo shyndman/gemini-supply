@@ -299,11 +299,8 @@ class CamoufoxHost:
       highlight_mouse=self._highlight_mouse,
     )
 
-  async def is_authenticated(self, page: playwright.async_api.Page) -> bool:
-    try:
-      return (await page.wait_for_selector("#authenticatedButton", timeout=3000)) is not None
-    except Exception:  # noqa: BLE001
-      return False
+  async def is_authenticated(self, page: playwright.async_api.Page, timeout: int = 3000) -> bool:
+    return (await page.wait_for_selector(".authenticatedButton", timeout=timeout)) is not None
 
   async def _route_interceptor(self, route: playwright.async_api.Route) -> None:
     url = route.request.url
