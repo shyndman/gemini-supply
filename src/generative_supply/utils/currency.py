@@ -18,6 +18,9 @@ def _normalize_price_text(price_text: str) -> str:
   else:
     # Otherwise assume commas group thousands.
     normalized = normalized.replace(",", "")
+  # Trim dangling separators left behind by suffixes like "ea.".
+  while normalized and not normalized[-1].isdigit():
+    normalized = normalized[:-1]
   if not normalized:
     raise ValueError(f"price_text '{price_text}' lacks digits")
   return normalized
