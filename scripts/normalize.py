@@ -14,7 +14,6 @@ from pathlib import Path
 # Add src to path so we can import generative_supply
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from generative_supply.config import load_config
 from generative_supply.preferences.normalizer import NormalizationAgent
 
 
@@ -25,20 +24,8 @@ async def main() -> None:
     print('  ./normalize.py "2x Lactantia 1% Milk" "Bread"', file=sys.stderr)
     sys.exit(1)
 
-  # Load config
-  try:
-    config = load_config(None)
-  except Exception as exc:
-    print(f"Error loading config: {exc}", file=sys.stderr)
-    sys.exit(1)
-
-  # Create normalizer from config
-  prefs = config.preferences
-  agent = NormalizationAgent(
-    model_name=prefs.normalizer_model,
-    base_url=prefs.normalizer_api_base_url,
-    api_key=prefs.normalizer_api_key,
-  )
+  # Built-in config keeps expectations simple; no external settings required here.
+  agent = NormalizationAgent()
 
   # Process each item
   items = sys.argv[1:]

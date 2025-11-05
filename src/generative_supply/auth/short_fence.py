@@ -49,4 +49,4 @@ def find_interactive_element_click_location(screenshot_bytes: bytes) -> Position
         + (needle.size // 2)
         + random.randint(-needle.size // 3, needle.size // 3),
       )
-    return None
+  return None

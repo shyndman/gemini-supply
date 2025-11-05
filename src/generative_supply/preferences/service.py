@@ -28,12 +28,11 @@ class PreferenceCoordinator:
   messenger: TelegramPreferenceMessenger
 
   async def start(self) -> None:
-    if self.messenger is not None:
-      await self.messenger.start()
+    # Short rationale: coordinator always owns a messenger, so fire it deterministically.
+    await self.messenger.start()
 
   async def stop(self) -> None:
-    if self.messenger is not None:
-      await self.messenger.stop()
+    await self.messenger.stop()
 
   async def normalize_item(self, item_text: str) -> NormalizedItem:
     return await self.normalizer.normalize(item_text)
@@ -62,7 +61,7 @@ class PreferenceItemSession:
 
   @property
   def can_request_choice(self) -> bool:
-    return self._coordinator.messenger is not None
+    return True
 
   @property
   def has_existing_preference(self) -> bool:
@@ -94,14 +93,6 @@ class PreferenceItemSession:
 
   async def request_choice(self, choices: list[ProductChoice]) -> ProductDecision:
     messenger = self._coordinator.messenger
-    if messenger is None:
-      return ProductDecision(
-        decision="skip",
-        selected_index=None,
-        selected_choice=None,
-        message="Preference prompting is disabled; proceeding without selection.",
-        make_default=False,
-      )
     self._prompt_invoked = True
     self._make_default_on_success = False
     request = ProductChoiceRequest(

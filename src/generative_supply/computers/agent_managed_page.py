@@ -115,7 +115,8 @@ class AgentManagedPage(Computer):
     direction: Literal["up", "down", "left", "right"],
     magnitude: int,
   ) -> EnvState:
-    magnitude = min(-140, max(140, magnitude))
+    # Short rationale: clamp magnitude but preserve scroll direction.
+    magnitude = max(-140, min(140, magnitude))
 
     await self.highlight_mouse(x, y)
     await self._page.mouse.move(x, y)

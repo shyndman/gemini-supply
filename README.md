@@ -40,8 +40,6 @@ Process all uncompleted items from a YAML shopping list with the authenticated s
       token: YOUR_LONG_LIVED_ACCESS_TOKEN
 
     preferences:
-      normalizer_model: "qwen3:1.7b"
-      normalizer_api_base_url: "http://ollama/v1"
       telegram:
         bot_token: "YOUR_TELEGRAM_BOT_TOKEN"
         chat_id: -123456789
@@ -57,12 +55,9 @@ Product preferences & Telegram prompts
 
 - Add a `preferences` block to `config.yaml` (see `config.sample.yaml`).
   - `file`: where canonical item → product mappings are stored.
-  - `normalizer_model`: OpenAI-compatible model name used for categorizing items (defaults to `qwen3:1.7b`).
-  - `normalizer_api_base_url`: Optional OpenAI-compatible endpoint (e.g., Ollama `http://ollama-nvidia.don/v1`).
-  - `normalizer_api_key`: Optional key for remote providers; leave blank for local Ollama.
   - `telegram.bot_token` and `telegram.chat_id`: credentials for the chat the bot should post in.
   - Optional `telegram.nag_minutes` adjusts reminder cadence (default 30).
-- Normalization uses OpenAI-compatible APIs. Provide credentials via `normalizer_api_key`, `OPENAI_API_KEY`, or `GEMINI_API_KEY`. For Ollama, set `normalizer_api_base_url` (or `OLLAMA_BASE_URL`) and optionally `OLLAMA_API_KEY`.
+- Normalization now runs against the built-in Gemini flash-lite model, so no external configuration or API keys are required.
 - When configured, the agent records your choices per canonical category (e.g., “Milk”) and reuses them automatically.
 - If the browser agent cannot disambiguate a product, it will queue a prompt in the configured Telegram chat so you can choose or type an alternative.
 

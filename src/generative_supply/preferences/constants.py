@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-DEFAULT_NORMALIZER_MODEL = "qwen3:1.7b"
+DEFAULT_NORMALIZER_MODEL = "gemini-flash-lite-latest"
 
 
 DEFAULT_NAG_STRINGS = [

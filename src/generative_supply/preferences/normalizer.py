@@ -77,15 +77,9 @@ Respond with ONLY valid JSON matching the schema. No explanations, markdown, or 
 
 
 class NormalizationAgent:
-  def __init__(
-    self,
-    model_name: str = DEFAULT_NORMALIZER_MODEL,
-    base_url: str | None = None,
-    api_key: str | None = None,
-  ) -> None:
-    self._model_name = model_name
-    self._base_url = base_url.strip() if isinstance(base_url, str) and base_url.strip() else None
-    self._api_key = api_key.strip() if isinstance(api_key, str) and api_key.strip() else None
+  def __init__(self) -> None:
+    # Short rationale: stick to one tuned model path so normalization stays deterministic.
+    self._model_name = DEFAULT_NORMALIZER_MODEL
 
   async def normalize(self, item_text: str) -> NormalizedItem:
     run_result = await self._agent.run(
@@ -107,13 +101,9 @@ class NormalizationAgent:
 
   @cached_property
   def _agent(self) -> Agent[None, _PartialNormalizedItem]:
-    # base_url = self._base_url
-    # provider_api_key = self._api_key
-    # provider = OllamaProvider(base_url=base_url, api_key=provider_api_key)
-    # model = OpenAIChatModel(model_name=self._model_name, provider=provider)
     provider = GoogleProvider()
     model = GoogleModel(
-      model_name="gemini-flash-lite-latest",
+      model_name=self._model_name,
       provider=provider,
       settings=GoogleModelSettings(
         google_thinking_config={"include_thoughts": True, "thinking_budget": 2048}

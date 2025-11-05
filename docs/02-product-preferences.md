@@ -27,11 +27,9 @@ Introduce a per-item preference system so ambiguous shopping-list entries resolv
 ## Preference Storage
 - **Config hook**: Add a `preferences` block to `config.yaml`.
   - `file`: Path (absolute or relative) to the YAML store for canonical mappings.
-  - `normalizer_model`: OpenAI-compatible model to use for categorization (default `qwen3:1.7b`).
-  - `normalizer_api_base_url`: Optional base URL for OpenAI-compatible providers (e.g., Ollama `http://ollama/v1`). If omitted, falls back to environment variables.
-  - `normalizer_api_key`: Optional API key for the provider (or use `OPENAI_API_KEY`, `GEMINI_API_KEY`, or provider-specific env vars).
   - `telegram.bot_token`, `telegram.chat_id`: Enable human-in-the-loop prompting.
   - `telegram.nag_minutes` (optional): Reminder cadence, defaults to 30.
+  - Normalization always uses the bundled Gemini flash-lite model, so no additional API settings are required.
 - **File**: YAML map keyed by `canonical_key`. Each value stores:
   - `product_name`: The metro.ca display name selected by the user.
   - `product_url`: The product page URL (for deterministic navigation).

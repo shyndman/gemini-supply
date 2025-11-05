@@ -1,18 +1,6 @@
-# Copyright 2025 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import asyncio
 import os
+from collections.abc import Awaitable
 from enum import StrEnum
 from typing import Any, Callable, Literal, TypeAlias, TypedDict, cast
 
@@ -156,92 +144,96 @@ class BrowserAgent:
   async def handle_action(self, action: FunctionCall) -> ActionResult:
     await self._browser_computer.pre_action()
 
-    """Handles the action and returns the environment state."""
     assert action.args is not None, f"Action {action.name} missing required args"
-    match action.name:
-      case "open_web_browser":
-        return await self._browser_computer.open_web_browser()
 
-      case "click_at":
-        x = self.denormalize_x(action.args["x"])
-        y = self.denormalize_y(action.args["y"])
-        return await self._browser_computer.click_at(x=x, y=y)
+    def _denormalize_point(
+      arg_map: dict[str, Any], x_key: str = "x", y_key: str = "y"
+    ) -> tuple[int, int]:
+      return self.denormalize_x(arg_map[x_key]), self.denormalize_y(arg_map[y_key])
 
-      case "hover_at":
-        x = self.denormalize_x(action.args["x"])
-        y = self.denormalize_y(action.args["y"])
-        return await self._browser_computer.hover_at(x=x, y=y)
+    async def _click(action_args: dict[str, Any]) -> EnvState:
+      x, y = _denormalize_point(action_args)
+      return await self._browser_computer.click_at(x=x, y=y)
 
-      case "type_text_at":
-        x = self.denormalize_x(action.args["x"])
-        y = self.denormalize_y(action.args["y"])
-        press_enter = action.args.get("press_enter", False)
-        clear_before_typing = action.args.get("clear_before_typing", True)
-        return await self._browser_computer.type_text_at(
-          x=x,
-          y=y,
-          text=action.args["text"],
-          press_enter=press_enter,
-          clear_before_typing=clear_before_typing,
-        )
+    async def _type(action_args: dict[str, Any]) -> EnvState:
+      x, y = _denormalize_point(action_args)
+      return await self._browser_computer.type_text_at(
+        x=x,
+        y=y,
+        text=action_args["text"],
+        press_enter=action_args.get("press_enter", False),
+        clear_before_typing=action_args.get("clear_before_typing", True),
+      )
 
-      case "scroll_document":
-        magnitude = action.args.get("magnitude", 300)
-        return await self._browser_computer.scroll_document(action.args["direction"], magnitude)
+    async def _scroll_at(action_args: dict[str, Any]) -> EnvState:
+      x, y = _denormalize_point(action_args)
+      direction = action_args["direction"]
+      magnitude = action_args.get("magnitude", 300)
+      if direction in ("up", "down"):
+        magnitude = self.denormalize_y(magnitude)
+      elif direction in ("left", "right"):
+        magnitude = self.denormalize_x(magnitude)
+      else:
+        raise ValueError(f"Unknown direction: {direction}")
+      return await self._browser_computer.scroll_at(
+        x=x, y=y, direction=direction, magnitude=magnitude
+      )
 
-      case "scroll_at":
-        x = self.denormalize_x(action.args["x"])
-        y = self.denormalize_y(action.args["y"])
-        magnitude = action.args.get("magnitude", 300)
-        direction = action.args["direction"]
+    async def _scroll_document(action_args: dict[str, Any]) -> EnvState:
+      return await self._browser_computer.scroll_document(
+        action_args["direction"], action_args.get("magnitude", 300)
+      )
 
-        if direction in ("up", "down"):
-          magnitude = self.denormalize_y(magnitude)
-        elif direction in ("left", "right"):
-          magnitude = self.denormalize_x(magnitude)
-        else:
-          raise ValueError(f"Unknown direction: {direction}")
-        return await self._browser_computer.scroll_at(
-          x=x, y=y, direction=direction, magnitude=magnitude
-        )
+    async def _drag(action_args: dict[str, Any]) -> EnvState:
+      x, y = _denormalize_point(action_args)
+      dest_x, dest_y = _denormalize_point(action_args, "destination_x", "destination_y")
+      return await self._browser_computer.drag_and_drop(
+        x=x, y=y, destination_x=dest_x, destination_y=dest_y
+      )
 
-      case "wait_5_seconds":
-        return await self._browser_computer.wait_5_seconds()
+    async def _navigate(action_args: dict[str, Any]) -> EnvState:
+      return await self._browser_computer.navigate(action_args["url"])
 
-      case "go_back":
-        return await self._browser_computer.go_back()
+    async def _key_combo(action_args: dict[str, Any]) -> EnvState:
+      keys = action_args["keys"]
+      if isinstance(keys, str):
+        keys = keys.split("+")
+      return await self._browser_computer.key_combination(keys)
 
-      case "go_forward":
-        return await self._browser_computer.go_forward()
+    async def _hover_wrapper(action_args: dict[str, Any]) -> EnvState:
+      x, y = _denormalize_point(action_args)
+      return await self._browser_computer.hover_at(x=x, y=y)
 
-      case "search":
-        return await self._browser_computer.search()
+    # Short rationale: the dispatch table keeps ComputerUse support auditable and easy to extend.
+    handlers: dict[str, Callable[[dict[str, Any]], Awaitable[EnvState | ActionResult]]] = {
+      "open_web_browser": lambda _: self._browser_computer.open_web_browser(),
+      "click_at": _click,
+      "hover_at": _hover_wrapper,
+      "type_text_at": _type,
+      "scroll_document": _scroll_document,
+      "scroll_at": _scroll_at,
+      "wait_5_seconds": lambda _: self._browser_computer.wait_5_seconds(),
+      "go_back": lambda _: self._browser_computer.go_back(),
+      "go_forward": lambda _: self._browser_computer.go_forward(),
+      "search": lambda _: self._browser_computer.search(),
+      "navigate": _navigate,
+      "key_combination": _key_combo,
+      "drag_and_drop": _drag,
+    }
 
-      case "navigate":
-        return await self._browser_computer.navigate(action.args["url"])
+    action_args = action.args
+    if action.name is None:
+      raise ValueError("Action name is None")
+    handler = handlers.get(action.name)
+    if handler is not None:
+      return await handler(action_args)
 
-      case "key_combination":
-        return await self._browser_computer.key_combination(action.args["keys"].split("+"))
+    if action.name in self._custom_tools_by_name:
+      (_, custom_fn) = self._custom_tools_by_name[action.name]
+      args = convert_number_values_for_dict_function_call_args(action.args)
+      return await invoke_function_from_dict_args_async(args, custom_fn)
 
-      case "drag_and_drop":
-        x = self.denormalize_x(action.args["x"])
-        y = self.denormalize_y(action.args["y"])
-        destination_x = self.denormalize_x(action.args["destination_x"])
-        destination_y = self.denormalize_y(action.args["destination_y"])
-        return await self._browser_computer.drag_and_drop(
-          x=x,
-          y=y,
-          destination_x=destination_x,
-          destination_y=destination_y,
-        )
-
-      case _ if action.name in self._custom_tools_by_name:
-        (_, custom_fn) = self._custom_tools_by_name[action.name]
-        args = convert_number_values_for_dict_function_call_args(action.args)
-        return await invoke_function_from_dict_args_async(args, custom_fn)
-
-      case _:
-        raise ValueError(f"Unsupported function: {action.name}")
+    raise ValueError(f"Unsupported function: {action.name}")
 
   async def get_model_response(
     self, max_retries: int = 5, base_delay_s: int = 1

@@ -419,7 +419,8 @@ class TelegramPreferenceMessenger:
 
     try:
       # Edit the original message to append feedback and remove buttons
-      updated_text = f"{original_text}\n\n{feedback}"
+      safe_original = escape_markdown(original_text, version=2)
+      updated_text = f"{safe_original}\n\n{feedback}"
       await app.bot.edit_message_text(
         chat_id=self._settings.chat_id,
         message_id=message_id,

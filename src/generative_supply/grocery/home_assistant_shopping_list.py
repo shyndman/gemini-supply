@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import cast
 
 import httpx
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from generative_supply.config import HomeAssistantShoppingListConfig
 from generative_supply.grocery.types import (
@@ -62,7 +62,7 @@ class _EntityItemsData(BaseModel):
 
   model_config = ConfigDict(extra="allow")
 
-  items: list[_HomeAssistantItemModel] = []
+  items: list[_HomeAssistantItemModel] = Field(default_factory=list)
 
 
 # --- Home Assistant provider ---
@@ -169,22 +169,16 @@ class HomeAssistantShoppingListProvider:
   async def _get_items(self) -> list[_HomeAssistantItemModel]:
     url = f"{self.config.url}/api/services/todo/get_items?return_response"
     payload = {"entity_id": self.config.entity_id}
-    try:
-      async with httpx.AsyncClient(timeout=5.0) as client:
-        resp = await client.post(url, json=payload, headers=self._headers())
-        resp.raise_for_status()
-        raw_data = resp.json()
-        response = _TodoGetItemsResponse.model_validate(raw_data)
-        entity_data = response.service_response.get(self.config.entity_id)
-        if entity_data is None:
-          return []
-        return entity_data.items
-    except httpx.HTTPStatusError as e:
-      if e.response.status_code in (401, 403):
-        raise RuntimeError(f"Home Assistant auth failed: HTTP {e.response.status_code}") from e
-      return []
-    except (httpx.RequestError, ValidationError):
-      return []
+    # Short rationale: bubble HTTP/schema errors so operators see misconfigurations immediately.
+    async with httpx.AsyncClient(timeout=5.0) as client:
+      resp = await client.post(url, json=payload, headers=self._headers())
+      resp.raise_for_status()
+      raw_data = resp.json()
+      response = _TodoGetItemsResponse.model_validate(raw_data)
+      entity_data = response.service_response.get(self.config.entity_id)
+      if entity_data is None:
+        return []
+      return entity_data.items
 
   async def _get_item_name(self, item_id: str) -> str:
     items = await self._get_items()
@@ -204,14 +198,10 @@ class HomeAssistantShoppingListProvider:
     if "status" in fields:
       payload["status"] = fields["status"]
 
-    try:
-      async with httpx.AsyncClient(timeout=5.0) as client:
-        resp = await client.post(url, json=payload, headers=self._headers())
-        resp.raise_for_status()
-    except httpx.HTTPStatusError as e:
-      if e.response.status_code in (401, 403):
-        raise RuntimeError(f"Home Assistant auth failed: HTTP {e.response.status_code}") from e
-      # Minimal logging; ignore other errors
+    # Short rationale: keep writes strict; HA failures should halt the run.
+    async with httpx.AsyncClient(timeout=5.0) as client:
+      resp = await client.post(url, json=payload, headers=self._headers())
+      resp.raise_for_status()
 
   async def _notify_persistent(self, markdown: str) -> None:
     url = f"{self.config.url}/api/services/persistent_notification/create"

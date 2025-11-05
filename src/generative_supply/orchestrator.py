@@ -42,7 +42,6 @@ from generative_supply.models import (
 )
 from generative_supply.preferences import (
   DEFAULT_NAG_STRINGS,
-  DEFAULT_NORMALIZER_MODEL,
   NormalizationAgent,
   NormalizedItem,
   OverrideRequest,
@@ -140,11 +139,8 @@ def _build_provider(config: ShoppingListConfig, no_retry: bool) -> ShoppingListP
 async def _setup_preferences(pref_cfg: PreferencesConfig) -> PreferenceResources:
   pref_path = pref_cfg.file
   store = PreferenceStore(pref_path)
-  normalizer = NormalizationAgent(
-    model_name=pref_cfg.normalizer_model or DEFAULT_NORMALIZER_MODEL,
-    base_url=pref_cfg.normalizer_api_base_url,
-    api_key=pref_cfg.normalizer_api_key,
-  )
+  # Short rationale: we rely on the baked-in Gemini normalizer to keep behavior consistent.
+  normalizer = NormalizationAgent()
   messenger: TelegramPreferenceMessenger | None = None
   tel_cfg = pref_cfg.telegram
   messenger = TelegramPreferenceMessenger(
@@ -167,7 +163,7 @@ async def _setup_preferences(pref_cfg: PreferencesConfig) -> PreferenceResources
 
 def load_init_scripts():
   return [
-    files("gemini_supply.page").joinpath("srp.js").read_text(encoding="utf-8"),
+    files("generative_supply.page").joinpath("srp.js").read_text(encoding="utf-8"),
   ]
 
 

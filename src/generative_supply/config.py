@@ -111,27 +111,11 @@ class PreferencesConfig(BaseModel):
 
   file: Path = Field(default=DEFAULT_PREFERENCES_PATH)
   telegram: PreferencesTelegramConfig
-  normalizer_model: str
-  normalizer_api_base_url: str
-  normalizer_api_key: str | None = None
 
   @field_validator("file", mode="after")
   @classmethod
   def _expand_file(cls, value: Path) -> Path:
     return value.expanduser()
-
-  @field_validator("normalizer_model", "normalizer_api_base_url", mode="after")
-  @classmethod
-  def _normalize_required_str(cls, value: str) -> str:
-    trimmed = trim(value)
-    if trimmed is None:
-      raise ValueError("value must be a non-empty string")
-    return trimmed
-
-  @field_validator("normalizer_api_key", mode="after")
-  @classmethod
-  def _normalize_optional_str(cls, value: str | None) -> str | None:
-    return trim(value)
 
 
 class AppConfig(BaseModel):
