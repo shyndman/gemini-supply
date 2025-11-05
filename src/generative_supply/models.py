@@ -11,6 +11,7 @@ from generative_supply.grocery.types import (
   ShoppingSummary,
 )
 from generative_supply.preferences import PreferenceItemSession
+from generative_supply.preferences.exceptions import OverrideRequest
 from generative_supply.preferences.types import ProductChoice, ProductDecision
 
 if TYPE_CHECKING:
@@ -107,6 +108,7 @@ class ShoppingSession:
   provider: ShoppingListProvider
   preference_session: PreferenceItemSession
   result: ItemAddedResult | ItemNotFoundResult | None = None
+  override_request: OverrideRequest | None = None
 
   async def report_item_added(
     self, item_name: str, price_text: str, quantity: int = 1
@@ -152,10 +154,8 @@ class ShoppingSession:
       choices: Up to 10 structured product options containing title, price, and URL
 
     Returns:
-      ProductDecision describing the user's choice when the user selects an option or skips.
-
-    Raises:
-      PreferenceOverrideRequested: When the user supplies replacement shopping instructions.
+      ProductDecision describing the user's choice when the user selects an option, skips, or
+      requests an alternate description.
     """
     decision = await self.preference_session.request_choice(choices)
 
@@ -163,6 +163,16 @@ class ShoppingSession:
     if decision.decision == "skip":
       await self.report_item_not_found(
         self.item.name, "User chose to skip this item during product selection"
+      )
+
+    if decision.decision == "alternate":
+      override_text = decision.alternate_text
+      if override_text is None:
+        raise ValueError("alternate decision must include alternate_text")
+      self.override_request = OverrideRequest(
+        previous_text=self.preference_session.normalized.original_text,
+        override_text=override_text,
+        normalized=self.preference_session.normalized.model_copy(deep=True),
       )
 
     return decision

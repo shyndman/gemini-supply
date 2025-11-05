@@ -47,7 +47,6 @@ from generative_supply.preferences import (
   OverrideRequest,
   PreferenceCoordinator,
   PreferenceItemSession,
-  PreferenceOverrideRequested,
   PreferenceRecord,
   PreferenceStore,
   TelegramPreferenceMessenger,
@@ -404,7 +403,7 @@ async def _process_item(
       existing_preference = await preference_session.existing_preference()
 
     try:
-      return await _shop_single_item_in_tab(
+      outcome = await _shop_single_item_in_tab(
         host=host,
         item=item,
         settings=settings,
@@ -419,16 +418,6 @@ async def _process_item(
         override=active_override,
         original_entry_text=root_original_text,
       )
-    except PreferenceOverrideRequested as override_exc:
-      active_override = override_exc.override
-      activity_log().agent(agent_label).operation(
-        f"User override received. Using new text "
-        f"'{active_override.override_text}' (source={active_override.source})."
-      )
-      current_normalized = await preferences.coordinator.normalize_item(
-        active_override.override_text
-      )
-      continue
     except Exception as exc:  # noqa: BLE001
       await _handle_processing_exception(
         item,
@@ -437,6 +426,18 @@ async def _process_item(
         agent_label=agent_label,
       )
       return FailedOutcome(error=str(exc))
+
+    if isinstance(outcome, OverrideRequest):
+      active_override = outcome
+      activity_log().agent(agent_label).operation(
+        f"User override received. Using new text "
+        f"'{active_override.override_text}' (source={active_override.source})."
+      )
+      current_normalized = await preferences.coordinator.normalize_item(
+        active_override.override_text
+      )
+      continue
+    return outcome
 
 
 async def _handle_processing_exception(
@@ -477,7 +478,7 @@ async def _shop_single_item_in_tab(
   agent_label: str,
   override: OverrideRequest | None = None,
   original_entry_text: str | None = None,
-) -> Outcome:
+) -> Outcome | OverrideRequest:
   active_text = preference_session.normalized.original_text
   display_label = active_text
   if override is not None:
@@ -548,6 +549,11 @@ async def _shop_single_item_in_tab(
             f"Authentication expired during attempt {attempt}; scheduling re-auth."
           )
           break
+
+        if session.override_request is not None:
+          override = session.override_request
+          session.override_request = None
+          return override
 
         if session.result is not None:
           result = session.result

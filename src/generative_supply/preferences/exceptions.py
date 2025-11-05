@@ -14,11 +14,3 @@ class OverrideRequest:
   normalized: NormalizedItem
   source: str = "telegram"
   supersedes_original: bool = True
-
-
-class PreferenceOverrideRequested(RuntimeError):
-  """Raised when the user supplies replacement shopping instructions."""
-
-  def __init__(self, override: OverrideRequest) -> None:
-    super().__init__("preference override requested")
-    self.override = override

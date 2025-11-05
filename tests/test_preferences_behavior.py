@@ -8,9 +8,13 @@ import pytest
 from generative_supply.grocery import (
   HomeAssistantShoppingListProvider,
   ItemAddedResult,
+  ItemNotFoundResult,
+  ItemStatus,
+  ShoppingListItem,
+  ShoppingListProvider,
   ShoppingSummary,
 )
-from generative_supply.models import AddedOutcome, ShoppingResults
+from generative_supply.models import AddedOutcome, ShoppingResults, ShoppingSession
 from generative_supply.orchestrator import _is_specific_request
 from generative_supply.preferences import (
   NormalizationAgent,
@@ -19,7 +23,6 @@ from generative_supply.preferences import (
   PreferenceItemSession,
   PreferenceRecord,
   PreferenceStore,
-  PreferenceOverrideRequested,
   ProductChoice,
   ProductChoiceRequest,
   ProductDecision,
@@ -70,6 +73,28 @@ class _AlternateMessenger:
       selected_choice=None,
       alternate_text=self._alternate_text,
     )
+
+
+class _NullProvider:
+  async def get_uncompleted_items(self) -> list[ShoppingListItem]:  # pragma: no cover - helper
+    return []
+
+  async def mark_completed(self, item_id: str, result: ItemAddedResult) -> None:  # pragma: no cover
+    _ = (item_id, result)
+
+  async def mark_not_found(
+    self, item_id: str, result: ItemNotFoundResult
+  ) -> None:  # pragma: no cover
+    _ = (item_id, result)
+
+  async def mark_out_of_stock(self, item_id: str) -> None:  # pragma: no cover
+    _ = item_id
+
+  async def mark_failed(self, item_id: str, error: str) -> None:  # pragma: no cover
+    _ = (item_id, error)
+
+  async def send_summary(self, summary: ShoppingSummary) -> None:  # pragma: no cover
+    _ = summary
 
 
 def _normalized_item(
@@ -140,7 +165,7 @@ async def test_record_success_skips_without_default_toggle() -> None:
 
 
 @pytest.mark.asyncio
-async def test_request_choice_raises_override_on_alternate() -> None:
+async def test_request_choice_returns_alternate_flag() -> None:
   store = _FakeStore()
   coordinator = PreferenceCoordinator(
     normalizer=cast(NormalizationAgent, _DummyNormalizer()),
@@ -148,26 +173,49 @@ async def test_request_choice_raises_override_on_alternate() -> None:
     messenger=cast(TelegramPreferenceMessenger, _AlternateMessenger("oat milk 2L")),
   )
   session = PreferenceItemSession(coordinator, _normalized_item())
-  with pytest.raises(PreferenceOverrideRequested) as exc_info:
-    await session.request_choice(
-      [
-        ProductChoice(
-          title="Option 1",
-          price_text="$1.00",
-        )
-      ]
-    )
-  override_exc = cast(PreferenceOverrideRequested, exc_info.value)
-  override = override_exc.override
-  assert override.override_text == "oat milk 2L"
-  assert override.previous_text == session.normalized.original_text
-  assert override.supersedes_original is True
+  decision = await session.request_choice(
+    [
+      ProductChoice(
+        title="Option 1",
+        price_text="$1.00",
+      )
+    ]
+  )
+  assert decision.decision == "alternate"
 
 
 def test_is_specific_request_detects_brand_and_qualifiers() -> None:
   assert _is_specific_request(_normalized_item(brand="Lactantia")) is True
   assert _is_specific_request(_normalized_item(qualifiers=["unsalted"])) is True
   assert _is_specific_request(_normalized_item()) is False
+
+
+@pytest.mark.asyncio
+async def test_shopping_session_records_override_request() -> None:
+  store = _FakeStore()
+  coordinator = PreferenceCoordinator(
+    normalizer=cast(NormalizationAgent, _DummyNormalizer()),
+    store=cast(PreferenceStore, store),
+    messenger=cast(TelegramPreferenceMessenger, _AlternateMessenger("oat milk 2L")),
+  )
+  session = PreferenceItemSession(coordinator, _normalized_item())
+  shopping_session = ShoppingSession(
+    item=ShoppingListItem(id="1", name="Milk", status=ItemStatus.NEEDS_ACTION),
+    provider=cast(ShoppingListProvider, _NullProvider()),
+    preference_session=session,
+  )
+  await shopping_session.request_product_choice(
+    [
+      ProductChoice(
+        title="Option 1",
+        price_text="$1.00",
+      )
+    ]
+  )
+  override = shopping_session.override_request
+  assert override is not None
+  assert override.override_text == "oat milk 2L"
+  assert override.previous_text == session.normalized.original_text
 
 
 def test_shopping_results_track_default_flags() -> None:
