@@ -113,19 +113,19 @@ def build_shopper_prompt(
 
     3. On the search results page, interact with the chosen product:
 
-      - If you see a shopping cart icon button (🛒):
+      - If you see a circular shopping cart icon button (🛒) in the bottom-right corner of the product card:
         * Click the 🛒 button
         * 🚨VERY IMPORTANT🚨 If the "Delivery or Pickup?" form appears:
           1. Fill in the postal code: M4C1Y5
           2. Press "Confirm"
           3. Several delivery or pickup options will appear. Click the LAST option: "Choose Later"
-          4. The quantity controls will now be visible with a quantity of 1
-          5. Adjust to the desired quantity using the plus button if needed
+          4. The item is now added to the cart automatically and the quantity controls should show 1
+          5. Only adjust the quantity if the requested amount differs; avoid pressing + if it already matches
         * Proceed to step 4
 
       - If you see quantity controls (trash icon, quantity number, plus button):
-        * Note the current quantity shown
-        * Adjust to the desired quantity using the plus button
+        * Note the current quantity shown — the prior flow may have already added one unit
+        * Adjust only when the displayed quantity does not meet the request
         * Proceed to step 4
 
       - If you realize you've added the WRONG item:
