@@ -16,8 +16,9 @@ from generative_supply.config import DEFAULT_CONFIG_PATH, ConcurrencyConfig, loa
 from generative_supply.models import ShoppingSettings
 from generative_supply.orchestrator import run_shopping, load_init_scripts
 from generative_supply.profile import resolve_camoufox_exec, resolve_profile_dir
+from generative_supply.term import ActivityLog, set_activity_log
 
-PLAYWRIGHT_SCREEN_SIZE = (1024, 768)
+PLAYWRIGHT_SCREEN_SIZE = (1280, 1024)
 DEMO_WINDOW_POSITION = (8126, 430)
 
 
