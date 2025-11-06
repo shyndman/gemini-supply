@@ -1,5 +1,7 @@
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
+import time
 from typing import Literal, TYPE_CHECKING
 
 from generative_supply.computers import ScreenSize
@@ -109,6 +111,7 @@ class ShoppingSession:
   preference_session: PreferenceItemSession
   result: ItemAddedResult | ItemNotFoundResult | None = None
   override_request: OverrideRequest | None = None
+  on_preference_wait: Callable[[float], None] | None = None
 
   async def report_item_added(
     self, item_name: str, price_text: str, quantity: int = 1
@@ -157,7 +160,11 @@ class ShoppingSession:
       ProductDecision describing the user's choice when the user selects an option, skips, or
       requests an alternate description.
     """
+    wait_start = time.monotonic()
     decision = await self.preference_session.request_choice(choices)
+    wait_elapsed = time.monotonic() - wait_start
+    if self.on_preference_wait is not None and wait_elapsed > 0:
+      self.on_preference_wait(wait_elapsed)
 
     # Handle skip decision immediately without involving the agent further
     if decision.decision == "skip":

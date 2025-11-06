@@ -504,6 +504,7 @@ async def _shop_single_item_in_tab(
     agent: BrowserAgent | None = None
     start = time.monotonic()
     budget_seconds = settings.time_budget.total_seconds()
+    paused_seconds = 0.0
     turns = 0
     try:
       session = ShoppingSession(
@@ -511,6 +512,14 @@ async def _shop_single_item_in_tab(
         provider=shopping_list_provider,
         preference_session=preference_session,
       )
+
+      def _on_preference_wait(delta: float) -> None:
+        nonlocal paused_seconds
+        if delta > 0:
+          paused_seconds += delta
+
+      session.on_preference_wait = _on_preference_wait
+
       agent = BrowserAgent(
         browser_computer=page,
         query=prompt,
@@ -533,7 +542,8 @@ async def _shop_single_item_in_tab(
           activity_log().agent(agent_label).warning("Max turns exceeded; marking failed.")
           return FailedOutcome(error=f"max_turns_exceeded: {settings.max_turns}")
 
-        if time.monotonic() - start > budget_seconds:
+        effective_elapsed = time.monotonic() - start - paused_seconds
+        if effective_elapsed > budget_seconds:
           await shopping_list_provider.mark_failed(
             item.id, f"time_budget_exceeded: {settings.time_budget}"
           )
