@@ -300,7 +300,11 @@ class CamoufoxHost:
     )
 
   async def is_authenticated(self, page: playwright.async_api.Page, timeout: int = 3000) -> bool:
-    return (await page.wait_for_selector(".authenticatedButton", timeout=timeout)) is not None
+    try:
+      await page.wait_for_selector(".authenticatedButton", timeout=timeout)
+      return True
+    except playwright.async_api.TimeoutError:
+      return False
 
   async def _route_interceptor(self, route: playwright.async_api.Route) -> None:
     url = route.request.url

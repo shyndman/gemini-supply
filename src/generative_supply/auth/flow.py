@@ -67,7 +67,7 @@ async def _perform_login(host: CamoufoxHost) -> None:
     await _accept_cookies(page)
     await _open_promotions(page)
 
-    if await host.is_authenticated(page, 30000):
+    if await host.is_authenticated(page, 10000):
       activity_log().auth.warning("Existing authenticated session detected; skipping login.")
       return
 
