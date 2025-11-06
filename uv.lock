@@ -622,6 +622,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "rich" },
     { name = "structlog" },
+    { name = "terminaltexteffects" },
     { name = "textual-image" },
 ]
 
@@ -657,6 +658,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "rich", specifier = ">=14.2.0" },
     { name = "structlog", specifier = ">=25.4.0" },
+    { name = "terminaltexteffects", specifier = ">=0.12.2" },
     { name = "textual-image", specifier = ">=0.8.4" },
 ]
 
@@ -2503,6 +2505,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/0a/d4/2b0cd0fe285e14b36db076e78c93766ff1d529d70408bd1d2a5a84f1d929/tenacity-9.1.2.tar.gz", hash = "sha256:1169d376c297e7de388d18b4481760d478b0e99a777cad3a9c86e556f4b697cb", size = 48036, upload-time = "2025-04-02T08:25:09.966Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e5/30/643397144bfbfec6f6ef821f36f33e57d35946c44a2352d3c9f0ae847619/tenacity-9.1.2-py3-none-any.whl", hash = "sha256:f77bf36710d8b73a50b2dd155c97b870017ad21afe6ab300326b0371b3b05138", size = 28248, upload-time = "2025-04-02T08:25:07.678Z" },
+]
+
+[[package]]
+name = "terminaltexteffects"
+version = "0.12.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9d/92/0eb3f0ad206bf449b7db75f061202dce27d8cb90e598ce3c7d32c0bd80b9/terminaltexteffects-0.12.2.tar.gz", hash = "sha256:4a5eef341d538743e7ac4341cd74d47afc9d0345acdad330ed03fd0a72e41f5f", size = 164321, upload-time = "2025-10-20T20:58:26.091Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c7/93/a588ab8b15ceeef23042aa52660fb4891a0e955e92cd3aa97dcafe621720/terminaltexteffects-0.12.2-py3-none-any.whl", hash = "sha256:4b986034094007aa9a31cb1bd16d5d8fcac9755fb6a5da8f74ee7b70c0fa2d63", size = 189344, upload-time = "2025-10-20T20:58:24.425Z" },
 ]
 
 [[package]]

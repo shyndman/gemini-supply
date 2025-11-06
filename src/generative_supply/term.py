@@ -6,8 +6,12 @@ from io import BytesIO
 from PIL import Image as PILImage
 from PIL.Image import Image as PILImageT
 from PIL.Image import Resampling
+from rich import box
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
+from terminaltexteffects import Gradient
+from terminaltexteffects.effects.effect_laseretch import LaserEtch
 from textual_image.renderable import Image as ConsoleImage
 
 
@@ -34,6 +38,11 @@ class CategoryLogger:
   def __init__(self, console: Console, prefix: str | None) -> None:
     self._console = console
     self._prefix = prefix
+
+  def _format_with_prefix(self, message: str) -> str:
+    if self._prefix:
+      return f"[{self._prefix}] {message}"
+    return message
 
   def operation(self, message: str) -> None:
     """Log an operation in progress (cyan)."""
@@ -85,11 +94,14 @@ class CategoryLogger:
       self._console.print(f"[white]{message}[/white]")
 
   def thinking(self, message: str) -> None:
-    """Log model thinking output (dim)."""
-    if self._prefix:
-      self._console.print(f"[dim]\\[{self._prefix}] {message}[/dim]")
-    else:
-      self._console.print(f"[dim]{message}[/dim]")
+    """Log model thinking output (table format)."""
+    text = message.rstrip() or "(no details)"
+    table = Table(show_header=False, box=box.SIMPLE, expand=True)
+    table.add_column("Context", style="cyan", no_wrap=True)
+    table.add_column("Details", style="white")
+    context = self._format_with_prefix("Thinking")
+    table.add_row(context, text)
+    self._console.print(table, end="\n")
 
   def trace(self, message: str) -> None:
     """Log low-level debug information (grey70)."""
@@ -104,6 +116,8 @@ class ActivityLog:
 
   def __init__(self) -> None:
     self._console = Console()
+    self._normalizer_prompt_logged = False
+    self._agent_prompt_logged = False
 
     # Static category loggers
     self.auth = CategoryLogger(self._console, "auth")
@@ -173,6 +187,42 @@ class ActivityLog:
     if label:
       self._console.print(f"[cyan]{label}[/cyan] → {action_name} @ {url}")
     display_image_bytes_in_terminal(png_bytes)
+
+  def log_normalizer_prompt(self, prompt: str) -> None:
+    if self._normalizer_prompt_logged:
+      self.normalizer.debug("Normalizer prompt suppressed (already shown this run).")
+      return
+    self._normalizer_prompt_logged = True
+    panel = Panel.fit(
+      prompt.strip(),
+      title="[normalizer] Normalizer Prompt",
+      border_style="magenta",
+    )
+    self._console.print(panel)
+
+  def log_agent_prompt(self, agent_label: str | None, display_label: str, prompt: str) -> None:
+    if self._agent_prompt_logged:
+      self.agent(agent_label).debug(
+        f"Computer-use prompt suppressed for '{display_label}' (already shown this run)."
+      )
+      return
+    self._agent_prompt_logged = True
+    label = agent_label or "agent"
+    title = f"[{label}] Shopper Prompt: {display_label}"
+    panel = Panel.fit(prompt.strip(), title=title, border_style="cyan")
+    self._console.print(panel)
+
+  def celebrate_addition(self, agent_label: str | None, banner_text: str) -> None:
+    effect = LaserEtch(banner_text)
+    effect.terminal_config.canvas_width = 0
+    effect.terminal_config.canvas_height = 0
+    effect.terminal_config.frame_rate = 60
+    cfg = effect.effect_config
+    cfg.etch_direction = "center_to_outside"
+    cfg.final_gradient_direction = Gradient.Direction.HORIZONTAL
+    with effect.terminal_output() as terminal:
+      for frame in effect:
+        terminal.print(frame)
 
 
 def display_image_bytes_in_terminal(png_bytes: bytes) -> None:

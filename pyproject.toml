@@ -30,6 +30,7 @@ dependencies = [
     "pyyaml>=6.0.3",
     "rich>=14.2.0",
     "structlog>=25.4.0",
+    "terminaltexteffects>=0.12.2",
     "textual-image>=0.8.4",
 ]
 

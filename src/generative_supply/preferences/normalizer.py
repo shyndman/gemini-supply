@@ -80,8 +80,12 @@ class NormalizationAgent:
   def __init__(self) -> None:
     # Short rationale: stick to one tuned model path so normalization stays deterministic.
     self._model_name = DEFAULT_NORMALIZER_MODEL
+    self._prompt_logged = False
 
   async def normalize(self, item_text: str) -> NormalizedItem:
+    if not self._prompt_logged:
+      activity_log().log_normalizer_prompt(SYSTEM_PROMPT)
+      self._prompt_logged = True
     run_result = await self._agent.run(
       user_prompt=f"{SYSTEM_PROMPT}\n\nItem for analysis:{item_text}"
     )
@@ -89,8 +93,7 @@ class NormalizationAgent:
     # Log model thinking if available
     thinking = run_result.response.thinking
     if thinking:
-      activity_log().normalizer.operation(f"Model thinking for '{item_text}':")
-      activity_log().normalizer.thinking(f"  {thinking}")
+      activity_log().normalizer.thinking(f"Model thinking for '{item_text}':\n\n{thinking.strip()}")
 
     partial = run_result.output
     json: dict[str, object] = {
