@@ -9,13 +9,4 @@ def setup_logging() -> None:
   _setup_logging_dependencies()
 
 
-def _setup_logging_dependencies() -> None:
-  import logging
-  import logfire
-
-  # Suppress all logging from third-party libraries
-  logging.getLogger("playwright-captcha").setLevel(logging.CRITICAL)
-  # Configure logfire to get their tendrils into some of our deps
-  logfire.configure(console=logfire.ConsoleOptions(verbose=True))
-  logfire.instrument_httpx()
-  logfire.instrument_pydantic_ai()
+def _setup_logging_dependencies() -> None: ...
