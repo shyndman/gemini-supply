@@ -45,15 +45,19 @@ fi
 # Create JSON payload
 COMMENT_JSON=$(jq -Rs '{"body": .}' < "$COMMENT_FILE")
 
-# Post the comment using GitHub API
+# Post the comment using GitHub API (using stdin to avoid token exposure in process list)
 API_URL="https://api.github.com/repos/$OWNER/$REPO/issues/$ISSUE_NUMBER/comments"
 
+# Use a subshell and heredoc to pass the token via stdin to avoid process list exposure
 RESPONSE=$(curl -s -X POST \
   -H "Accept: application/vnd.github+json" \
-  -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H @- \
   -H "X-GitHub-Api-Version: 2022-11-28" \
   "$API_URL" \
-  -d "$COMMENT_JSON")
+  -d "$COMMENT_JSON" <<EOF
+Authorization: Bearer $GITHUB_TOKEN
+EOF
+)
 
 # Check if successful
 if echo "$RESPONSE" | jq -e '.id' > /dev/null 2>&1; then

@@ -161,7 +161,7 @@ Combines album view with separate button message.
 - ✅ Reasonable implementation effort
 
 **Implementation checklist:**
-- [ ] Add `image_url: str | None` field to `ProductChoice` model
+- [ ] Add `image_url: HttpUrl | None` field to `ProductChoice` model (using pydantic's HttpUrl for validation)
 - [ ] Update agent scraper to extract image URLs from product listings
 - [ ] Add `_send_media_group_prompt()` method to `TelegramPreferenceMessenger`
 - [ ] Modify `_send_prompt()` to check for images and choose appropriate send method
@@ -197,8 +197,9 @@ If Phase 1 scope is too large, start with:
 
 ### Files to Modify:
 1. **`src/generative_supply/preferences/types.py`**
-   - Add `image_url` field to `ProductChoice`
-   - Add optional `image_alt_text` for accessibility
+   - Add `image_url: HttpUrl | None` field to `ProductChoice` (pydantic's HttpUrl for validation)
+   - Add optional `image_alt_text: str | None` for accessibility
+   - Note: HttpUrl needs to be imported from `pydantic` (already used in codebase)
 
 2. **`src/generative_supply/preferences/messenger.py`**
    - Add `_send_media_group_prompt()` method

@@ -2,6 +2,7 @@
 """
 Post research findings to GitHub Issue #10
 Requires GITHUB_TOKEN environment variable or .git-credentials file
+Requires: pip install requests
 """
 
 import os
@@ -13,7 +14,11 @@ from pathlib import Path
 try:
     import requests
 except ImportError:
-    requests = None
+    print("❌ Error: requests library is required but not installed")
+    print("Install it with: pip install requests")
+    print("\nAlternatively, use GitHub CLI:")
+    print("  gh issue comment 10 --body-file docs/telegram-image-display-research.md")
+    sys.exit(1)
 
 def get_github_token():
     """Try to get GitHub token from various sources."""
@@ -50,11 +55,6 @@ def get_github_token():
 
 def post_comment(owner, repo, issue_number, comment_file):
     """Post comment to GitHub issue."""
-    if requests is None:
-        print("❌ requests library not installed")
-        print("Install it with: pip install requests")
-        return False
-    
     token = get_github_token()
     if not token:
         print("❌ Could not find GitHub token")
