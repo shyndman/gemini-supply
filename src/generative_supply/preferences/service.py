@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
 from generative_supply.grocery import ItemAddedResult
+from generative_supply.term import activity_log
 
 from .messenger import TelegramPreferenceMessenger
 from .normalizer import NormalizationAgent
@@ -121,6 +122,9 @@ class PreferenceItemSession:
       await self._coordinator.store.set(self._normalized.canonical_key(), record)
       self._cached_preference = record
       self._has_existing_preference = True
+      activity_log().prefix("prefs").success(
+        f"Default saved for '{self._normalized.canonical_key()}': {added.item_name}"
+      )
 
 
 class _SentinelType:

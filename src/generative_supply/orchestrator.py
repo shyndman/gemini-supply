@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import textwrap
 import time
 from dataclasses import dataclass
 from datetime import timedelta
@@ -380,6 +379,7 @@ async def _process_item(
   state: OrchestrationState,
   agent_label: str,
 ) -> Outcome:
+  item_started = time.monotonic()
   existing_preference: PreferenceRecord | None = None
   specific_request = False
   activity_log().agent(agent_label).debug(f"Begin pre-shop auth check for '{item.name}'.")
@@ -425,7 +425,13 @@ async def _process_item(
         provider,
         agent_label=agent_label,
       )
-      return FailedOutcome(error=str(exc))
+      failure = FailedOutcome(error=str(exc))
+      activity_log().log_item_completion(
+        agent_label,
+        failure,
+        time.monotonic() - item_started,
+      )
+      return failure
 
     if isinstance(outcome, OverrideRequest):
       active_override = outcome
@@ -437,6 +443,7 @@ async def _process_item(
         active_override.override_text
       )
       continue
+    activity_log().log_item_completion(agent_label, outcome, time.monotonic() - item_started)
     return outcome
 
 
@@ -493,7 +500,7 @@ async def _shop_single_item_in_tab(
     override_text=override.override_text if override is not None else None,
     original_list_text=original_entry_text,
   )
-  activity_log().agent(agent_label).debug(f"Computer-use prompt:\n{textwrap.indent(prompt, '  ')}")
+  activity_log().log_agent_prompt(agent_label, display_label, prompt)
   max_attempts = 2
   for attempt in range(1, max_attempts + 1):
     needs_retry = False

@@ -6,6 +6,10 @@ from io import BytesIO
 from PIL import Image as PILImage
 from PIL.Image import Image as PILImageT
 from PIL.Image import Resampling
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+  from generative_supply.models import Outcome
 from rich import box
 from rich.console import Console
 from rich.panel import Panel
@@ -211,6 +215,32 @@ class ActivityLog:
     title = f"[{label}] Shopper Prompt: {display_label}"
     panel = Panel.fit(prompt.strip(), title=title, border_style="cyan")
     self._console.print(panel)
+
+  def log_item_completion(
+    self,
+    agent_label: str,
+    outcome: "Outcome",
+    elapsed_seconds: float,
+  ) -> None:
+    from generative_supply.models import AddedOutcome, NotFoundOutcome
+
+    duration = f"{elapsed_seconds:.1f}s"
+    if isinstance(outcome, AddedOutcome):
+      result = outcome.result
+      notes: list[str] = []
+      if outcome.used_default:
+        notes.append("default used")
+      if outcome.starred_default:
+        notes.append("starred default")
+      note_text = f" ({', '.join(notes)})" if notes else ""
+      message = (
+        f"Completed: Added '{result.item_name}' {result.price_text} ×{result.quantity}{note_text}"
+      )
+    elif isinstance(outcome, NotFoundOutcome):
+      message = f"Completed: Not found '{outcome.result.item_name}' — {outcome.result.explanation}"
+    else:
+      message = f"Completed: Failed — {outcome.error}"
+    self.agent(agent_label).success(f"=== {message} ({duration}) ===")
 
   def celebrate_addition(self, agent_label: str | None, banner_text: str) -> None:
     effect = LaserEtch(banner_text)
