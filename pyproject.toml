@@ -36,6 +36,7 @@ dependencies = [
 
 [project.scripts]
 generative-supply = "generative_supply.__main__:main"
+gesup = "generative_supply.__main__:main"
 generative-supply-auth-scratch = "generative_supply.auth_scratch:main"
 
 [build-system]
