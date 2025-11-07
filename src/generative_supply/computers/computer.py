@@ -95,7 +95,7 @@ class Computer(abc.ABC):
 
   @abc.abstractmethod
   async def wait_5_seconds(self) -> EnvState:
-    """Waits for 5 seconds to allow unfinished webpage processes to complete."""
+    """Waits briefly (~3 seconds) to let the page settle while keeping the legacy name."""
 
   @abc.abstractmethod
   async def go_back(self) -> EnvState:

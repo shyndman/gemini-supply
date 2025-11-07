@@ -140,7 +140,9 @@ class AgentManagedPage(Computer):
   async def wait_5_seconds(self) -> EnvState:
     import asyncio
 
-    await asyncio.sleep(5)
+    # Metro flows load/react almost instantly for us, so a full 5-second nap is overkill—
+    # three seconds keeps the loop snappy without starving slow responses.
+    await asyncio.sleep(3)
     return await self.current_state()
 
   async def go_back(self) -> EnvState:
