@@ -84,7 +84,7 @@ uv run generative-supply shop --shopping-list ~/.config/generative-supply/shoppi
 ## Dependencies Management
 
 - Add dependencies: `uv add <package>` (NOT by manually editing `pyproject.toml`)
-- Update dependencies: `uv pip compile pyproject.toml --upgrade`
+- Update dependencies: `uv lock --upgrade`
 - Version bumping: `uv version --bump major|minor|patch`
 
 ## Security and Configuration
