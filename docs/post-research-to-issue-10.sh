@@ -4,6 +4,18 @@
 
 set -e
 
+# Check if jq is available
+if ! command -v jq &> /dev/null; then
+  echo "Error: jq is not installed"
+  echo "Please install jq to use this script:"
+  echo "  - Ubuntu/Debian: sudo apt-get install jq"
+  echo "  - macOS: brew install jq"
+  echo ""
+  echo "Or use GitHub CLI instead:"
+  echo "  gh issue comment 10 --body-file docs/telegram-image-display-research.md"
+  exit 1
+fi
+
 OWNER="shyndman"
 REPO="generative-supply"
 ISSUE_NUMBER="10"

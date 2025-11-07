@@ -10,6 +10,11 @@ import json
 import subprocess
 from pathlib import Path
 
+try:
+    import requests
+except ImportError:
+    requests = None
+
 def get_github_token():
     """Try to get GitHub token from various sources."""
     # Try environment variable first
@@ -45,7 +50,10 @@ def get_github_token():
 
 def post_comment(owner, repo, issue_number, comment_file):
     """Post comment to GitHub issue."""
-    import requests
+    if requests is None:
+        print("❌ requests library not installed")
+        print("Install it with: pip install requests")
+        return False
     
     token = get_github_token()
     if not token:
