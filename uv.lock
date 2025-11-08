@@ -499,6 +499,12 @@ wheels = [
 ]
 
 [[package]]
+name = "flatdict"
+version = "4.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/3e/0d/424de6e5612f1399ff69bf86500d6a62ff0a4843979701ae97f120c7f1fe/flatdict-4.0.1.tar.gz", hash = "sha256:cd32f08fd31ed21eb09ebc76f06b6bd12046a24f77beb1fd0281917e47f26742", size = 8341, upload-time = "2020-02-13T19:16:14.3Z" }
+
+[[package]]
 name = "frozenlist"
 version = "1.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -603,6 +609,7 @@ dependencies = [
     { name = "camoufox", extra = ["geoip"] },
     { name = "clypi" },
     { name = "crawlee" },
+    { name = "flatdict" },
     { name = "google-genai" },
     { name = "httpx" },
     { name = "libsh" },
@@ -639,6 +646,7 @@ requires-dist = [
     { name = "camoufox", extras = ["geoip"], specifier = ">=0.4.11" },
     { name = "clypi", specifier = ">=1.8.1" },
     { name = "crawlee", specifier = ">=1.0.4" },
+    { name = "flatdict", specifier = ">=4.0.1" },
     { name = "google-genai", specifier = ">=1.40.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "libsh", specifier = ">=0.2.0" },

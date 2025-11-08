@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from contextvars import ContextVar
 from io import BytesIO
+from typing import TYPE_CHECKING
 
 from PIL import Image as PILImage
 from PIL.Image import Image as PILImageT
 from PIL.Image import Resampling
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
   from generative_supply.models import Outcome
@@ -14,10 +15,9 @@ from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from terminaltexteffects import Gradient
 from terminaltexteffects.effects.effect_laseretch import LaserEtch
+from terminaltexteffects.utils.graphics import Gradient
 from textual_image.renderable import Image as ConsoleImage
-
 
 # Context variable for activity log
 _activity_log: ContextVar[ActivityLog | None] = ContextVar("activity_log")
@@ -266,3 +266,24 @@ def display_image_bytes_in_terminal(png_bytes: bytes) -> None:
 def display_image_in_terminal(image: PILImageT) -> None:
   with Console() as console:
     console.print(ConsoleImage(image))
+
+
+def render_light_table(rows: Sequence[tuple[str, object]], *, title: str | None = None) -> str:
+  """Render lightweight two-column table text for key/value diagnostics."""
+  table = Table(
+    show_header=False,
+    show_edge=False,
+    box=box.MINIMAL,
+    expand=False,
+    pad_edge=False,
+  )
+  table.add_column(justify="right", style="cyan", no_wrap=True, ratio=1)
+  table.add_column(style="white", ratio=3)
+  for key, value in rows:
+    table.add_row(str(key), "" if value is None else str(value))
+
+  console = Console(record=True)
+  if title:
+    console.print(f"[bold]{title}[/bold]")
+  console.print(table)
+  return console.export_text().rstrip()

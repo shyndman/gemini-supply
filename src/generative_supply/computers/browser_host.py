@@ -5,7 +5,6 @@ import os
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from pprint import pformat
 from types import TracebackType
 from typing import (
   Any,
@@ -21,9 +20,10 @@ from urllib.parse import urlparse
 import playwright.async_api
 from camoufox.async_api import AsyncNewBrowser  # type: ignore
 from camoufox.utils import launch_options as camoufox_launch_options
+from flatdict import FlatDict
 from playwright.async_api import async_playwright
 
-from generative_supply.term import activity_log
+from generative_supply.term import activity_log, render_light_table
 
 from .agent_managed_page import AgentManagedPage
 from .computer import ScreenSize
@@ -187,6 +187,7 @@ class CamoufoxHost:
     if "config" in launch_kwargs and isinstance(launch_kwargs["config"], dict):
       launch_kwargs["config"] = launch_kwargs["config"].copy()
     launch_kwargs.pop("headless", None)
+
     if self._window_position is not None:
       config = cast(dict[str, Any], launch_kwargs.setdefault("config", {}))
       window_x, window_y = self._window_position
@@ -196,6 +197,21 @@ class CamoufoxHost:
       config["screen.availTop"] = window_y
 
     exe_path = str(self._executable_path) if self._executable_path else None
+
+    snapshot_rows = [
+      ("headless", str(headless)),
+      ("executable", exe_path or "(camoufox default)"),
+      ("screen.size", f"{self._screen_size.width}×{self._screen_size.height}"),
+    ]
+
+    if self._window_position is not None:
+      window_x, window_y = self._window_position
+      snapshot_rows.append(("window.position", f"{window_x},{window_y}"))
+
+    flat_launch_kwargs = cast(list[tuple[str, str]], FlatDict(launch_kwargs, delimiter=".").items())
+    snapshot_rows.extend(flat_launch_kwargs)
+    render_light_table(snapshot_rows, title="Camoufox launch configuration")
+
     camoufox_headless = headless if isinstance(headless, bool) else False
     options = await loop.run_in_executor(
       None,
@@ -247,8 +263,6 @@ class CamoufoxHost:
     """Launch Camoufox browser with configured options."""
     assert self._playwright is not None
     options = await self._prepare_launch_options(headless=headless)
-    activity_log().warning("Camoufox launch configuration:")
-    activity_log().warning(pformat(options, sort_dicts=False))
 
     context = await AsyncNewBrowser(
       self._playwright,

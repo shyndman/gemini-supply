@@ -57,12 +57,16 @@ class _TodoGetItemsResponse(BaseModel):
   service_response: dict[str, "_EntityItemsData"]
 
 
+def _create_empty_item_list() -> list[_HomeAssistantItemModel]:
+  return []
+
+
 class _EntityItemsData(BaseModel):
   """Data for a specific entity's items."""
 
   model_config = ConfigDict(extra="allow")
 
-  items: list[_HomeAssistantItemModel] = Field(default_factory=list)
+  items: list[_HomeAssistantItemModel] = Field(default_factory=_create_empty_item_list)
 
 
 # --- Home Assistant provider ---
