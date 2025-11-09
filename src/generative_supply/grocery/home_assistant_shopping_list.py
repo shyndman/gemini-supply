@@ -310,4 +310,14 @@ class HomeAssistantShoppingListProvider:
     fmt_list("Duplicates", self._duplicates)
     fmt_list("Failed", summary.failed_items)
 
+    if summary.usage_entries:
+      lines.append("Gemini Usage\n")
+      for entry in summary.usage_entries:
+        tokens = entry.token_usage
+        lines.append(
+          f"- {entry.category.value} ({entry.model_name}) » in={tokens.input_tokens:,} "
+          f"out={tokens.output_tokens:,} cost={entry.cost.total_text}\n"
+        )
+      lines.append(f"Total Gemini Cost: {summary.usage_total_text}\n\n")
+
     return "".join(lines)

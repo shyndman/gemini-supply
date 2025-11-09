@@ -16,6 +16,7 @@ from generative_supply.grocery.types import (
   ItemStatus,
   ShoppingSummary,
 )
+from generative_supply.usage import CostBreakdown, TokenUsage, UsageCategory, UsageSummaryEntry
 
 
 @pytest.fixture
@@ -525,6 +526,28 @@ class TestSummaryFormatting:
     assert "Failed" in formatted
     assert "Milk" in formatted
     assert "Eggs" in formatted
+
+  def test_format_summary_includes_usage_section(
+    self, provider: HomeAssistantShoppingListProvider
+  ) -> None:
+    summary = ShoppingSummary(
+      usage_entries=[
+        UsageSummaryEntry(
+          category=UsageCategory.SHOPPER,
+          model_name="gemini",
+          provider_id="google",
+          token_usage=TokenUsage(input_tokens=100, output_tokens=80),
+          cost=CostBreakdown(input_cents=10, output_cents=20, total_cents=30),
+        )
+      ],
+      usage_total_cents=30,
+      usage_total_text="$0.30",
+    )
+
+    formatted = provider._format_summary(summary)
+
+    assert "Gemini Usage" in formatted
+    assert "cost=$0.30" in formatted
 
   async def test_send_summary_prints_when_activity(
     self, provider: HomeAssistantShoppingListProvider, capsys: pytest.CaptureFixture[str]

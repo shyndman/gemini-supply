@@ -53,7 +53,9 @@ from generative_supply.preferences import (
 )
 from generative_supply.profile import resolve_camoufox_exec, resolve_profile_dir
 from generative_supply.prompt import build_shopper_prompt
-from generative_supply.term import ActivityLog, activity_log, set_activity_log
+from generative_supply.term import ActivityLog, activity_log, render_light_table, set_activity_log
+from generative_supply.usage import UsageCategory, UsageLedger, summarize_usage_rows
+from generative_supply.usage_pricing import PricingEngine
 
 DEMO_WINDOW_POSITION = (8126, 430)
 
@@ -110,10 +112,23 @@ async def run_shopping(
   provider = _build_provider(config.shopping_list, no_retry)
   logger = ActivityLog()
   set_activity_log(logger)  # Set up context for all child calls
-  preferences = await _setup_preferences(config.preferences)
+  usage_ledger = UsageLedger()
+  pricing = PricingEngine()
+  preferences = await _setup_preferences(
+    config.preferences,
+    usage_ledger=usage_ledger,
+    pricing=pricing,
+  )
 
   try:
-    results = await _run_shopping_flow(provider, settings, logger, preferences)
+    results = await _run_shopping_flow(
+      provider=provider,
+      settings=settings,
+      logger=logger,
+      preferences=preferences,
+      usage_ledger=usage_ledger,
+      pricing=pricing,
+    )
   finally:
     await preferences.stop()
 
@@ -134,11 +149,16 @@ def _build_provider(config: ShoppingListConfig, no_retry: bool) -> ShoppingListP
   raise ValueError("Unsupported shopping list configuration")
 
 
-async def _setup_preferences(pref_cfg: PreferencesConfig) -> PreferenceResources:
+async def _setup_preferences(
+  pref_cfg: PreferencesConfig,
+  *,
+  usage_ledger: UsageLedger,
+  pricing: PricingEngine,
+) -> PreferenceResources:
   pref_path = pref_cfg.file
   store = PreferenceStore(pref_path)
   # Short rationale: we rely on the baked-in Gemini normalizer to keep behavior consistent.
-  normalizer = NormalizationAgent()
+  normalizer = NormalizationAgent(usage_ledger=usage_ledger, pricing_engine=pricing)
   messenger: TelegramPreferenceMessenger | None = None
   tel_cfg = pref_cfg.telegram
   messenger = TelegramPreferenceMessenger(
@@ -212,6 +232,8 @@ async def _run_shopping_flow(
   settings: ShoppingSettings,
   logger: ActivityLog,
   preferences: PreferenceResources,
+  usage_ledger: UsageLedger,
+  pricing: PricingEngine,
 ) -> ShoppingResults:
   profile_dir = resolve_profile_dir()
   activity_log().operation(f"Using profile: {profile_dir}")
@@ -220,7 +242,8 @@ async def _run_shopping_flow(
   items = await provider.get_uncompleted_items()
   if not items:
     activity_log().warning("No uncompleted items found.")
-    return ShoppingResults()
+    _log_usage_totals(usage_ledger)
+    return ShoppingResults(usage=usage_ledger)
 
   activity_log().important(
     f"Loaded shopping list with {len(items)} item{'s' if len(items) != 1 else ''}:"
@@ -250,7 +273,7 @@ async def _run_shopping_flow(
     state = OrchestrationState()
     await state.ensure_pre_shop_auth(auth_manager)
     if effective_concurrency <= 1:
-      return await _run_sequential(
+      results = await _run_sequential(
         host=host,
         items=items,
         provider=provider,
@@ -260,19 +283,26 @@ async def _run_shopping_flow(
         auth_manager=auth_manager,
         state=state,
         agent_labels=agent_labels,
+        usage_ledger=usage_ledger,
+        pricing=pricing,
       )
-    return await _run_concurrent(
-      host=host,
-      items=items,
-      provider=provider,
-      settings=settings,
-      logger=logger,
-      preferences=preferences,
-      concurrency=effective_concurrency,
-      auth_manager=auth_manager,
-      state=state,
-      agent_labels=agent_labels,
-    )
+    else:
+      results = await _run_concurrent(
+        host=host,
+        items=items,
+        provider=provider,
+        settings=settings,
+        logger=logger,
+        preferences=preferences,
+        concurrency=effective_concurrency,
+        auth_manager=auth_manager,
+        state=state,
+        agent_labels=agent_labels,
+        usage_ledger=usage_ledger,
+        pricing=pricing,
+      )
+  _log_usage_totals(usage_ledger)
+  return results
 
 
 async def _run_sequential(
@@ -286,8 +316,10 @@ async def _run_sequential(
   auth_manager: AuthManager,
   state: OrchestrationState,
   agent_labels: Mapping[str, str],
+  usage_ledger: UsageLedger,
+  pricing: PricingEngine,
 ) -> ShoppingResults:
-  results = ShoppingResults()
+  results = ShoppingResults(usage=usage_ledger)
   for item in items:
     agent_label = agent_labels.get(item.id, f"agent-{item.id}")
     try:
@@ -301,6 +333,8 @@ async def _run_sequential(
         auth_manager=auth_manager,
         state=state,
         agent_label=agent_label,
+        usage_ledger=usage_ledger,
+        pricing=pricing,
       )
     except Exception as exc:  # noqa: BLE001
       await _handle_processing_exception(
@@ -326,8 +360,10 @@ async def _run_concurrent(
   auth_manager: AuthManager,
   state: OrchestrationState,
   agent_labels: Mapping[str, str],
+  usage_ledger: UsageLedger,
+  pricing: PricingEngine,
 ) -> ShoppingResults:
-  results = ShoppingResults()
+  results = ShoppingResults(usage=usage_ledger)
   sem = asyncio.Semaphore(concurrency)
   collected: list[tuple[ShoppingListItem, Outcome]] = []
 
@@ -345,6 +381,8 @@ async def _run_concurrent(
           auth_manager=auth_manager,
           state=state,
           agent_label=agent_label,
+          usage_ledger=usage_ledger,
+          pricing=pricing,
         )
         collected.append((item, outcome))
       except Exception as exc:  # noqa: BLE001
@@ -378,6 +416,8 @@ async def _process_item(
   auth_manager: AuthManager,
   state: OrchestrationState,
   agent_label: str,
+  usage_ledger: UsageLedger,
+  pricing: PricingEngine,
 ) -> Outcome:
   item_started = time.monotonic()
   existing_preference: PreferenceRecord | None = None
@@ -417,6 +457,8 @@ async def _process_item(
         agent_label=agent_label,
         override=active_override,
         original_entry_text=root_original_text,
+        usage_ledger=usage_ledger,
+        pricing=pricing,
       )
     except Exception as exc:  # noqa: BLE001
       await _handle_processing_exception(
@@ -470,6 +512,15 @@ def _is_specific_request(normalized: NormalizedItem) -> bool:
   return any(qualifier.strip() for qualifier in normalized.qualifiers)
 
 
+def _log_usage_totals(ledger: UsageLedger) -> None:
+  entries = ledger.snapshot()
+  if not entries:
+    activity_log().prefix("usage").important("No Gemini usage recorded this run.")
+    return
+  table = render_light_table(summarize_usage_rows(entries), title="Gemini Usage Totals")
+  activity_log().prefix("usage").important(table)
+
+
 async def _shop_single_item_in_tab(
   *,
   host: CamoufoxHost,
@@ -485,6 +536,8 @@ async def _shop_single_item_in_tab(
   agent_label: str,
   override: OverrideRequest | None = None,
   original_entry_text: str | None = None,
+  usage_ledger: UsageLedger,
+  pricing: PricingEngine,
 ) -> Outcome | OverrideRequest:
   active_text = preference_session.normalized.original_text
   display_label = active_text
@@ -538,6 +591,9 @@ async def _shop_single_item_in_tab(
           session.report_item_not_found,
           session.request_product_choice,
         ],
+        usage_ledger=usage_ledger,
+        pricing_engine=pricing,
+        usage_category=UsageCategory.SHOPPER,
       )
       status: LoopStatus = LoopStatus.CONTINUE
       while status == LoopStatus.CONTINUE:

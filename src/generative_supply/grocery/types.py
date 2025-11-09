@@ -5,6 +5,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
+from generative_supply.usage import UsageSummaryEntry
 from generative_supply.utils.currency import parse_price_cents
 
 
@@ -47,6 +48,10 @@ def _empty_str_list() -> list[str]:
   return []
 
 
+def _empty_usage_entries() -> list[UsageSummaryEntry]:
+  return []
+
+
 @dataclass(slots=True)
 class ShoppingSummary:
   added_items: list[ItemAddedResult] = field(default_factory=_empty_added_results)
@@ -58,3 +63,6 @@ class ShoppingSummary:
   total_cost_text: str = "$0.00"
   default_fills: list[str] = field(default_factory=_empty_str_list)
   new_defaults: list[str] = field(default_factory=_empty_str_list)
+  usage_entries: list[UsageSummaryEntry] = field(default_factory=_empty_usage_entries)
+  usage_total_cents: int = 0
+  usage_total_text: str = "$0.00"
