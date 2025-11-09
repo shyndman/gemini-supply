@@ -5,7 +5,6 @@ from decimal import Decimal
 
 from genai_prices import calc_price
 from genai_prices import types as price_types
-
 from google.genai.types import UsageMetadata
 from pydantic_ai.usage import RunUsage
 
@@ -16,7 +15,6 @@ from generative_supply.usage import (
   UsageCategory,
   decimal_to_cents,
 )
-
 
 _GOOGLE_PROVIDER_ID = "google"
 
@@ -40,12 +38,12 @@ def _tiered_price(base: str, tier_start: int, tier_price: str) -> price_types.Ti
 
 @dataclass(slots=True)
 class PricingEngine:
-  """Centralizes genai-prices lookups plus custom overrides."""
+  """Calculate Gemini pricing via genai-prices with repo-specific overrides."""
 
   _overrides: dict[str, price_types.ModelPrice] = field(init=False, repr=False)
 
   def __post_init__(self) -> None:
-    self._overrides: dict[str, price_types.ModelPrice] = {
+    self._overrides = {
       "gemini-2.5-computer-use-preview-10-2025": price_types.ModelPrice(
         input_mtok=_tiered_price("1.25", 200_000, "2.50"),
         output_mtok=_tiered_price("10.00", 200_000, "15.00"),
@@ -80,9 +78,9 @@ class PricingEngine:
     override = self._overrides.get(model_name)
     price_usage = tokens.to_price_usage()
     if override is not None:
-      cost_values = override.calc_price(price_usage)
+      cost_map = override.calc_price(price_usage)
+      cost = _cost_from_decimals(cost_map["input_price"], cost_map["output_price"])
       provider_id = _GOOGLE_PROVIDER_ID
-      cost = _cost_from_decimals(cost_values["input_price"], cost_values["output_price"])
       model_price = override
     else:
       calculation = calc_price(
@@ -91,8 +89,9 @@ class PricingEngine:
         provider_id=_GOOGLE_PROVIDER_ID,
       )
       cost = _cost_from_decimals(calculation.input_price, calculation.output_price)
-      model_price = calculation.model_price
       provider_id = calculation.provider.id
+      model_price = calculation.model_price
+
     return PricingQuote(
       model_name=model_name,
       provider_id=provider_id,

@@ -66,3 +66,6 @@ class ShoppingSummary:
   usage_entries: list[UsageSummaryEntry] = field(default_factory=_empty_usage_entries)
   usage_total_cents: int = 0
   usage_total_text: str = "$0.00"
+  usage_entries: list[UsageSummaryEntry] = field(default_factory=_empty_usage_entries)
+  usage_total_cents: int = 0
+  usage_total_text: str = "$0.00"

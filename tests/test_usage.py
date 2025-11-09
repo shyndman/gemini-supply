@@ -1,10 +1,17 @@
 from google.genai.types import UsageMetadata
 
-from generative_supply.usage import TokenUsage, UsageCategory, UsageLedger
+from generative_supply.usage import (
+  CostBreakdown,
+  TokenUsage,
+  UsageCategory,
+  UsageLedger,
+  UsageSummaryEntry,
+  summarize_usage_rows,
+)
 from generative_supply.usage_pricing import PricingEngine
 
 
-def test_token_usage_from_google_metadata() -> None:
+def test_token_usage_from_metadata() -> None:
   metadata = UsageMetadata(
     prompt_token_count=100,
     tool_use_prompt_token_count=20,
@@ -17,7 +24,7 @@ def test_token_usage_from_google_metadata() -> None:
   assert usage.output_tokens == 60
 
 
-def test_pricing_engine_custom_model_quote() -> None:
+def test_pricing_engine_computer_use_override() -> None:
   engine = PricingEngine()
   metadata = UsageMetadata(prompt_token_count=150_000, response_token_count=100_000)
   quote = engine.quote_from_google_metadata(
@@ -26,12 +33,12 @@ def test_pricing_engine_custom_model_quote() -> None:
     metadata=metadata,
   )
   assert quote is not None
-  assert quote.cost.total_cents == 119  # $1.19 total
+  assert quote.cost.total_cents == 119
 
 
-def test_usage_ledger_snapshot_accumulates() -> None:
-  engine = PricingEngine()
+def test_usage_ledger_snapshot_and_total() -> None:
   ledger = UsageLedger()
+  engine = PricingEngine()
   metadata = UsageMetadata(prompt_token_count=50_000, response_token_count=50_000)
   quote = engine.quote_from_google_metadata(
     model_name="gemini-2.5-computer-use-preview-10-2025",
@@ -42,4 +49,18 @@ def test_usage_ledger_snapshot_accumulates() -> None:
   ledger.record(quote)
   entries = ledger.snapshot()
   assert len(entries) == 1
-  assert entries[0].cost.total_cents == quote.cost.total_cents
+  entry = entries[0]
+  assert entry.cost.total_cents == quote.cost.total_cents
+  assert ledger.total_cost_cents() == quote.cost.total_cents
+
+
+def test_summarize_usage_rows() -> None:
+  entry = UsageSummaryEntry(
+    category=UsageCategory.SHOPPER,
+    model_name="gemini",
+    provider_id="google",
+    token_usage=TokenUsage(input_tokens=10, output_tokens=5),
+    cost=CostBreakdown(input_cents=1, output_cents=2, total_cents=3),
+  )
+  rows = summarize_usage_rows([entry])
+  assert rows == [("shopper:gemini", "in=10 | out=5 | cost=$0.03")]

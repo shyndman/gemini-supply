@@ -16,7 +16,7 @@ class UsageCategory(StrEnum):
 
 
 def decimal_to_cents(value: Decimal) -> int:
-  return int((value * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+  return int((value * Decimal(100)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def format_usd_cents(cents: int) -> str:
@@ -134,8 +134,8 @@ class UsageSummaryEntry:
 
 @dataclass(slots=True)
 class _UsageAccumulator:
-  model_name: str
   provider_id: str
+  model_name: str
   model_price: price_types.ModelPrice
   tokens: TokenUsage = field(default_factory=TokenUsage)
 
@@ -143,44 +143,37 @@ class _UsageAccumulator:
     self.tokens.add(usage)
 
   def cost(self) -> CostBreakdown:
-    prices = self.model_price.calc_price(self.tokens.to_price_usage())
-    input_cents = decimal_to_cents(prices["input_price"])
-    output_cents = decimal_to_cents(prices["output_price"])
-    total_cents = input_cents + output_cents
+    price_map = self.model_price.calc_price(self.tokens.to_price_usage())
+    input_cents = decimal_to_cents(price_map["input_price"])
+    output_cents = decimal_to_cents(price_map["output_price"])
     return CostBreakdown(
       input_cents=input_cents,
       output_cents=output_cents,
-      total_cents=total_cents,
+      total_cents=input_cents + output_cents,
     )
 
 
 class UsageLedger:
   def __init__(self) -> None:
-    self._entries: dict[UsageCategory, _UsageAccumulator] = {}
+    self._entries: dict[tuple[UsageCategory, str, str], _UsageAccumulator] = {}
 
   def record(self, quote: PricingQuote) -> None:
-    entry = self._entries.get(quote.category)
-    if entry is None:
-      self._entries[quote.category] = _UsageAccumulator(
-        model_name=quote.model_name,
+    key = (quote.category, quote.model_name, quote.provider_id)
+    accumulator = self._entries.get(key)
+    if accumulator is None:
+      accumulator = _UsageAccumulator(
         provider_id=quote.provider_id,
+        model_name=quote.model_name,
         model_price=quote.model_price,
       )
-      entry = self._entries[quote.category]
-    else:
-      if entry.model_name != quote.model_name:
-        raise ValueError(
-          f"Usage category {quote.category} already bound to {entry.model_name}; "
-          f"cannot record {quote.model_name}."
-        )
-    entry.add_usage(quote.token_usage)
+      self._entries[key] = accumulator
+    accumulator.add_usage(quote.token_usage)
 
   def snapshot(self) -> list[UsageSummaryEntry]:
     rows: list[UsageSummaryEntry] = []
-    for category in UsageCategory:
-      if category not in self._entries:
-        continue
-      accumulator = self._entries[category]
+    for (category, _model, _provider), accumulator in sorted(
+      self._entries.items(), key=_ledger_sort_key
+    ):
       rows.append(
         UsageSummaryEntry(
           category=category,
@@ -197,6 +190,13 @@ class UsageLedger:
 
   def __bool__(self) -> bool:
     return bool(self._entries)
+
+
+def _ledger_sort_key(
+  key_value: tuple[tuple[UsageCategory, str, str], _UsageAccumulator],
+) -> tuple[str, str]:
+  (category, model_name, _provider_id), _ = key_value
+  return (category.value, model_name)
 
 
 def summarize_usage_rows(entries: Iterable[UsageSummaryEntry]) -> list[tuple[str, str]]:
