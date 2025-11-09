@@ -15,6 +15,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from generative_supply.preferences.normalizer import NormalizationAgent
+from generative_supply.usage import UsageLedger
+from generative_supply.usage_pricing import PricingEngine
 
 
 async def main() -> None:
@@ -25,7 +27,10 @@ async def main() -> None:
     sys.exit(1)
 
   # Built-in config keeps expectations simple; no external settings required here.
-  agent = NormalizationAgent()
+  agent = NormalizationAgent(
+    usage_ledger=UsageLedger(),
+    pricing_engine=PricingEngine(),
+  )
 
   # Process each item
   items = sys.argv[1:]

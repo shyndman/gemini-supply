@@ -6,7 +6,10 @@ from typing import cast
 from pydantic_ai import Agent
 from pydantic_ai.models.google import GoogleModel, GoogleModelSettings
 from pydantic_ai.providers.google import GoogleProvider
+from pydantic_ai.run import AgentRunResult
 from generative_supply.term import activity_log
+from generative_supply.usage import UsageCategory, UsageLedger
+from generative_supply.usage_pricing import PricingEngine
 from .constants import DEFAULT_NORMALIZER_MODEL
 from .types import _PartialNormalizedItem, NormalizedItem
 
@@ -77,10 +80,12 @@ Respond with ONLY valid JSON matching the schema. No explanations, markdown, or 
 
 
 class NormalizationAgent:
-  def __init__(self) -> None:
+  def __init__(self, *, usage_ledger: UsageLedger, pricing_engine: PricingEngine) -> None:
     # Short rationale: stick to one tuned model path so normalization stays deterministic.
     self._model_name = DEFAULT_NORMALIZER_MODEL
     self._prompt_logged = False
+    self._usage_ledger = usage_ledger
+    self._pricing = pricing_engine
 
   async def normalize(self, item_text: str) -> NormalizedItem:
     if not self._prompt_logged:
@@ -89,6 +94,7 @@ class NormalizationAgent:
     run_result = await self._agent.run(
       user_prompt=f"{SYSTEM_PROMPT}\n\nItem for analysis:{item_text}"
     )
+    self._record_usage(run_result)
 
     # Log model thinking if available
     thinking = run_result.response.thinking
@@ -101,6 +107,33 @@ class NormalizationAgent:
       **partial.model_dump(),
     }
     return NormalizedItem.model_validate(json)
+
+  def _record_usage(self, run_result: AgentRunResult[_PartialNormalizedItem]) -> None:
+    try:
+      usage = run_result.usage()
+    except Exception:  # noqa: BLE001
+      return
+    try:
+      quote = self._pricing.quote_from_run_usage(
+        model_name=self._model_name,
+        category=UsageCategory.NORMALIZER,
+        usage=usage,
+      )
+    except Exception as exc:  # noqa: BLE001
+      activity_log().normalizer.warning(f"Failed to capture normalizer usage: {exc}")
+      return
+    if quote is None:
+      return
+    self._usage_ledger.record(quote)
+    tokens = quote.token_usage
+    try:
+      logger = activity_log().normalizer
+    except RuntimeError:
+      logger = None
+    if logger is not None:
+      logger.important(
+        f"Usage → in={tokens.input_tokens:,}, out={tokens.output_tokens:,}, cost={quote.cost.total_text}"
+      )
 
   @cached_property
   def _agent(self) -> Agent[None, _PartialNormalizedItem]:

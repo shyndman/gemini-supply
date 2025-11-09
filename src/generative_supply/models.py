@@ -13,6 +13,11 @@ from generative_supply.grocery.types import (
   ShoppingSummary,
 )
 from generative_supply.preferences import PreferenceItemSession
+from generative_supply.usage import (
+  PricingQuote,
+  UsageLedger,
+  format_usd_cents,
+)
 from generative_supply.preferences.exceptions import OverrideRequest
 from generative_supply.preferences.types import ProductChoice, ProductDecision
 
@@ -65,6 +70,7 @@ class ShoppingResults:
   total_cost_cents: int = 0
   default_filled_items: list[str] = field(default_factory=_empty_str_list)
   new_default_items: list[str] = field(default_factory=_empty_str_list)
+  usage: UsageLedger = field(default_factory=UsageLedger)
 
   def record(self, outcome: Outcome) -> None:
     if isinstance(outcome, AddedOutcome):
@@ -80,6 +86,8 @@ class ShoppingResults:
       self.failed_items.append(outcome.error)
 
   def to_summary(self) -> ShoppingSummary:
+    usage_entries = self.usage.snapshot()
+    usage_total_cents = sum(entry.cost.total_cents for entry in usage_entries)
     return ShoppingSummary(
       added_items=list(self.added_items),
       not_found_items=list(self.not_found_items),
@@ -90,7 +98,13 @@ class ShoppingResults:
       total_cost_text=f"${self.total_cost_cents / 100:.2f}",
       default_fills=list(self.default_filled_items),
       new_defaults=list(self.new_default_items),
+      usage_entries=usage_entries,
+      usage_total_cents=usage_total_cents,
+      usage_total_text=format_usd_cents(usage_total_cents),
     )
+
+  def record_usage(self, quote: PricingQuote) -> None:
+    self.usage.record(quote)
 
 
 @dataclass(slots=True)

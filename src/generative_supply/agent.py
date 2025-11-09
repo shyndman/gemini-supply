@@ -34,6 +34,8 @@ from generative_supply.computers import Computer, EnvState
 from generative_supply.grocery import ItemAddedResult, ItemNotFoundResult
 from generative_supply.preferences import ProductDecision
 from generative_supply.term import activity_log
+from generative_supply.usage import UsageCategory, UsageLedger
+from generative_supply.usage_pricing import PricingEngine
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
 PREDEFINED_COMPUTER_USE_FUNCTIONS = [
@@ -84,6 +86,9 @@ class BrowserAgent:
     browser_computer: Computer,
     query: str,
     model_name: str,
+    usage_ledger: UsageLedger,
+    pricing_engine: PricingEngine,
+    usage_category: UsageCategory,
     verbose: bool = True,
     client: google.genai.Client | None = None,
     custom_tools: list[CustomFunctionCallable] = [],
@@ -98,6 +103,9 @@ class BrowserAgent:
     self._turn_index = 0
     self._output_label = output_label
     self._agent_label = agent_label
+    self._usage_ledger = usage_ledger
+    self._pricing_engine = pricing_engine
+    self._usage_category = usage_category
     self._client: google.genai.Client = client or google.genai.Client(
       api_key=os.environ.get("GEMINI_API_KEY"),
     )
@@ -294,6 +302,7 @@ class BrowserAgent:
     # Generate a response from the model.
     with console.status(self._with_agent_prefix("Generating response from Gemini Computer Use...")):
       response = await self.get_model_response()
+    self._record_usage(response)
 
     if not response.candidates:
       print(self._with_agent_prefix("Response has no candidates!"))
@@ -431,6 +440,26 @@ class BrowserAgent:
                 part.function_response.parts = None
 
     return LoopStatus.CONTINUE
+
+  def _record_usage(self, response: GenerateContentResponse) -> None:
+    metadata = getattr(response, "usage_metadata", None)
+    try:
+      quote = self._pricing_engine.quote_from_google_metadata(
+        model_name=self._model_name,
+        category=self._usage_category,
+        metadata=metadata,
+      )
+    except Exception as exc:  # noqa: BLE001
+      activity_log().agent(self._agent_label).warning(f"Failed to capture usage metrics: {exc}")
+      return
+    if quote is None:
+      activity_log().agent(self._agent_label).debug("No usage metadata in response.")
+      return
+    self._usage_ledger.record(quote)
+    tokens = quote.token_usage
+    activity_log().agent(self._agent_label).important(
+      f"Usage → in={tokens.input_tokens:,}, out={tokens.output_tokens:,}, cost={quote.cost.total_text}"
+    )
 
   def _get_safety_confirmation(self, safety: SafetyDecision) -> Literal["CONTINUE", "TERMINATE"]:
     """Prompts user for safety confirmation when required by the model."""

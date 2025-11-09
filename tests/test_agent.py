@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Callable, Literal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -6,6 +6,8 @@ from google.genai import types
 
 from generative_supply.agent import BrowserAgent
 from generative_supply.computers import Computer, EnvState, ScreenSize
+from generative_supply.usage import UsageCategory, UsageLedger
+from generative_supply.usage_pricing import PricingEngine
 
 
 class MockComputer(Computer):
@@ -78,31 +80,38 @@ def set_gemini_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
   monkeypatch.setenv("GEMINI_API_KEY", "test-api-key")
 
 
+@pytest.fixture
+def agent_params(mock_computer: MockComputer) -> Callable[..., dict]:
+  pricing = PricingEngine()
+
+  def _factory(**overrides):
+    base = dict(
+      browser_computer=mock_computer,
+      query="Test query",
+      model_name="gemini-2.5-computer-use-preview-10-2025",
+      usage_ledger=UsageLedger(),
+      pricing_engine=pricing,
+      usage_category=UsageCategory.SHOPPER,
+    )
+    base.update(overrides)
+    return base
+
+  return _factory
+
+
 @pytest.mark.asyncio
-async def test_browser_agent_initialization(
-  mock_computer: MockComputer, set_gemini_api_key: None
-) -> None:
+async def test_browser_agent_initialization(agent_params, set_gemini_api_key: None) -> None:
   """Test that BrowserAgent initializes correctly."""
-  agent = BrowserAgent(
-    browser_computer=mock_computer,
-    query="Test query",
-    model_name="gemini-2.5-computer-use-preview-10-2025",
-  )
+  agent = BrowserAgent(**agent_params())
   assert agent._query == "Test query"
   assert agent._model_name == "gemini-2.5-computer-use-preview-10-2025"
   assert agent._browser_computer == mock_computer
 
 
 @pytest.mark.asyncio
-async def test_handle_action_open_web_browser(
-  mock_computer: MockComputer, set_gemini_api_key: None
-) -> None:
+async def test_handle_action_open_web_browser(agent_params, set_gemini_api_key: None) -> None:
   """Test that handle_action correctly handles open_web_browser."""
-  agent = BrowserAgent(
-    browser_computer=mock_computer,
-    query="Test query",
-    model_name="gemini-2.5-computer-use-preview-10-2025",
-  )
+  agent = BrowserAgent(**agent_params())
 
   function_call = types.FunctionCall(name="open_web_browser", args={})
   result = await agent.handle_action(function_call)
@@ -112,15 +121,9 @@ async def test_handle_action_open_web_browser(
 
 
 @pytest.mark.asyncio
-async def test_handle_action_click_at(
-  mock_computer: MockComputer, set_gemini_api_key: None
-) -> None:
+async def test_handle_action_click_at(agent_params, set_gemini_api_key: None) -> None:
   """Test that handle_action correctly handles click_at with coordinate denormalization."""
-  agent = BrowserAgent(
-    browser_computer=mock_computer,
-    query="Test query",
-    model_name="gemini-2.5-computer-use-preview-10-2025",
-  )
+  agent = BrowserAgent(**agent_params())
 
   # Gemini uses 1000x1000 normalized coordinates
   # 500 on 1000 scale should map to 720 on 1440 screen (500/1000 * 1440 = 720)
@@ -132,15 +135,9 @@ async def test_handle_action_click_at(
 
 
 @pytest.mark.asyncio
-async def test_handle_action_navigate(
-  mock_computer: MockComputer, set_gemini_api_key: None
-) -> None:
+async def test_handle_action_navigate(agent_params, set_gemini_api_key: None) -> None:
   """Test that handle_action correctly handles navigate."""
-  agent = BrowserAgent(
-    browser_computer=mock_computer,
-    query="Test query",
-    model_name="gemini-2.5-computer-use-preview-10-2025",
-  )
+  agent = BrowserAgent(**agent_params())
 
   function_call = types.FunctionCall(name="navigate", args={"url": "https://test.com"})
   result = await agent.handle_action(function_call)
@@ -150,15 +147,9 @@ async def test_handle_action_navigate(
 
 
 @pytest.mark.asyncio
-async def test_handle_action_key_combination(
-  mock_computer: MockComputer, set_gemini_api_key: None
-) -> None:
+async def test_handle_action_key_combination(agent_params, set_gemini_api_key: None) -> None:
   """Test that handle_action correctly handles key_combination."""
-  agent = BrowserAgent(
-    browser_computer=mock_computer,
-    query="Test query",
-    model_name="gemini-2.5-computer-use-preview-10-2025",
-  )
+  agent = BrowserAgent(**agent_params())
 
   function_call = types.FunctionCall(name="key_combination", args={"keys": "control+c"})
   result = await agent.handle_action(function_call)
@@ -167,15 +158,9 @@ async def test_handle_action_key_combination(
 
 
 @pytest.mark.asyncio
-async def test_denormalize_coordinates(
-  mock_computer: MockComputer, set_gemini_api_key: None
-) -> None:
+async def test_denormalize_coordinates(agent_params, set_gemini_api_key: None) -> None:
   """Test coordinate denormalization from 1000-based to actual screen size."""
-  agent = BrowserAgent(
-    browser_computer=mock_computer,
-    query="Test query",
-    model_name="gemini-2.5-computer-use-preview-10-2025",
-  )
+  agent = BrowserAgent(**agent_params())
 
   # Test x coordinate denormalization
   # 500 on 1000 scale should map to 720 on 1440 screen
@@ -193,15 +178,9 @@ async def test_denormalize_coordinates(
 
 
 @pytest.mark.asyncio
-async def test_get_model_response_retry_logic(
-  mock_computer: MockComputer, set_gemini_api_key: None
-) -> None:
+async def test_get_model_response_retry_logic(agent_params, set_gemini_api_key: None) -> None:
   """Test that get_model_response implements retry logic with exponential backoff."""
-  agent = BrowserAgent(
-    browser_computer=mock_computer,
-    query="Test query",
-    model_name="gemini-2.5-computer-use-preview-10-2025",
-  )
+  agent = BrowserAgent(**agent_params())
 
   # Mock the client's generate_content method to fail once then succeed
   mock_response = MagicMock()
@@ -224,14 +203,10 @@ async def test_get_model_response_retry_logic(
 
 @pytest.mark.asyncio
 async def test_get_model_response_max_retries_exhausted(
-  mock_computer: MockComputer, set_gemini_api_key: None
+  agent_params, set_gemini_api_key: None
 ) -> None:
   """Test that get_model_response raises after max retries."""
-  agent = BrowserAgent(
-    browser_computer=mock_computer,
-    query="Test query",
-    model_name="gemini-2.5-computer-use-preview-10-2025",
-  )
+  agent = BrowserAgent(**agent_params())
 
   with patch.object(
     agent._client.aio.models, "generate_content", new_callable=AsyncMock
@@ -244,15 +219,9 @@ async def test_get_model_response_max_retries_exhausted(
 
 
 @pytest.mark.asyncio
-async def test_handle_action_unsupported_function(
-  mock_computer: MockComputer, set_gemini_api_key: None
-) -> None:
+async def test_handle_action_unsupported_function(agent_params, set_gemini_api_key: None) -> None:
   """Test that handle_action raises ValueError for unsupported functions."""
-  agent = BrowserAgent(
-    browser_computer=mock_computer,
-    query="Test query",
-    model_name="gemini-2.5-computer-use-preview-10-2025",
-  )
+  agent = BrowserAgent(**agent_params())
 
   function_call = types.FunctionCall(name="unsupported_function", args={})
 
