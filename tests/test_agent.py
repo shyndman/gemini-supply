@@ -100,7 +100,9 @@ def agent_params(mock_computer: MockComputer) -> Callable[..., dict]:
 
 
 @pytest.mark.asyncio
-async def test_browser_agent_initialization(agent_params, set_gemini_api_key: None) -> None:
+async def test_browser_agent_initialization(
+  agent_params, mock_computer: MockComputer, set_gemini_api_key: None
+) -> None:
   """Test that BrowserAgent initializes correctly."""
   agent = BrowserAgent(**agent_params())
   assert agent._query == "Test query"
