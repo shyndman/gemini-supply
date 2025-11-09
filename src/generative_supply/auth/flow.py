@@ -35,9 +35,8 @@ class AuthenticationError(RuntimeError):
 class AuthManager:
   """Coordinates automated authentication with single-flight semantics."""
 
-  def __init__(self, host: CamoufoxHost, auth_flow: AuthFlow | None = None) -> None:
+  def __init__(self, host: CamoufoxHost) -> None:
     self._host = host
-    self._auth_flow: AuthFlow = auth_flow or _run_default_auth_flow
     # Keep single-flight semantics even when the orchestrator gates pre-shop auth; future
     # reauthentication passes will rely on this to avoid duplicate login attempts.
     self._lock = asyncio.Lock()
@@ -45,7 +44,7 @@ class AuthManager:
 
   async def ensure_authenticated(self) -> None:
     async with self._lock:
-      await self._auth_flow(self._host)
+      await _run_default_auth_flow(self._host)
       self._last_success = time.monotonic()
 
 
@@ -136,7 +135,7 @@ async def _accept_cookies(page: Page) -> None:
 
 async def _open_promotions(page: Page) -> None:
   await page.locator('.header-navs a[href="/en/flyer"]').click()
-  await page.wait_for_load_state()
+  await page.wait_for_load_state(state="domcontentloaded")
 
 
 AUTH_URL_PATTERN = re.compile("^https://auth.moiid.ca/")

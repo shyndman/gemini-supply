@@ -21,7 +21,7 @@ import playwright.async_api
 from camoufox.async_api import AsyncNewBrowser  # type: ignore
 from camoufox.utils import launch_options as camoufox_launch_options
 from flatdict import FlatDict
-from playwright.async_api import async_playwright
+from playwright.async_api import Page, async_playwright
 
 from generative_supply.term import activity_log, render_light_table
 
@@ -296,8 +296,8 @@ class CamoufoxHost:
 
   async def _acquire_page(self) -> playwright.async_api.Page:
     c = self.context
-    page = await c.new_page()
-    await page.goto(self._initial_url)
+    page: Page = await c.new_page()
+    await page.goto(self._initial_url, timeout=60000, wait_until="domcontentloaded")
     return page
 
   async def new_page(self) -> playwright.async_api.Page:
