@@ -11,6 +11,8 @@ import asyncio
 import sys
 from pathlib import Path
 
+from rich import print
+
 # Add src to path so we can import generative_supply
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -39,12 +41,7 @@ async def main() -> None:
   for idx, item_text in enumerate(items, start=1):
     print(f"[{idx}/{len(items)}] Input: {item_text!r}")
     try:
-      result = await agent.normalize(item_text)
-      # Print all fields from the model
-      for field_name in result.__class__.model_fields:
-        value = getattr(result, field_name)
-        print(f"  {field_name}: {value!r}")
-      print()
+      print(await agent.normalize(item_text))
     except Exception as exc:
       print(f"  ERROR: {exc}", file=sys.stderr)
       print()
