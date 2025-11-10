@@ -468,7 +468,7 @@ async def _process_item(
         agent_label=agent_label,
       )
       failure = FailedOutcome(error=str(exc))
-      activity_log().log_item_completion(
+      await activity_log().log_item_completion(
         agent_label,
         failure,
         time.monotonic() - item_started,
@@ -485,7 +485,7 @@ async def _process_item(
         active_override.override_text
       )
       continue
-    activity_log().log_item_completion(agent_label, outcome, time.monotonic() - item_started)
+    await activity_log().log_item_completion(agent_label, outcome, time.monotonic() - item_started)
     return outcome
 
 

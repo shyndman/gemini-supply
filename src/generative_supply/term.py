@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 from contextvars import ContextVar
 from io import BytesIO
@@ -10,11 +11,12 @@ from PIL.Image import Image as PILImageT
 from PIL.Image import Resampling
 
 if TYPE_CHECKING:
-  from generative_supply.models import Outcome
+  from generative_supply.models import AddedOutcome, Outcome
 from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.align import Align
 from terminaltexteffects.effects.effect_laseretch import LaserEtch
 from terminaltexteffects.utils.graphics import Gradient
 from textual_image.renderable import Image as ConsoleImage
@@ -216,7 +218,7 @@ class ActivityLog:
     panel = Panel.fit(prompt.strip(), title=title, border_style="cyan")
     self._console.print(panel)
 
-  def log_item_completion(
+  async def log_item_completion(
     self,
     agent_label: str,
     outcome: "Outcome",
@@ -236,23 +238,60 @@ class ActivityLog:
       message = (
         f"Completed: Added '{result.item_name}' {result.price_text} ×{result.quantity}{note_text}"
       )
+      self.agent(agent_label).success(f"=== {message} ({duration}) ===")
+      await self.celebrate_addition(
+        agent_label=agent_label,
+        outcome=outcome,
+        elapsed_seconds=elapsed_seconds,
+      )
+      return
     elif isinstance(outcome, NotFoundOutcome):
       message = f"Completed: Not found '{outcome.result.item_name}' — {outcome.result.explanation}"
     else:
       message = f"Completed: Failed — {outcome.error}"
     self.agent(agent_label).success(f"=== {message} ({duration}) ===")
 
-  def celebrate_addition(self, agent_label: str | None, banner_text: str) -> None:
+  async def celebrate_addition(
+    self,
+    *,
+    agent_label: str | None,
+    outcome: "AddedOutcome",
+    elapsed_seconds: float,
+  ) -> None:
+    result = outcome.result
+    notes: list[str] = []
+    if outcome.used_default:
+      notes.append("default fill")
+    if outcome.starred_default:
+      notes.append("starred favorite")
+    header = f"★ {result.item_name.upper()} ★"
+    details = f"{result.quantity} × {result.item_name} — {result.price_text}"
+    if notes:
+      details = f"{details} • {', '.join(notes)}"
+    timing = f"Finished in {elapsed_seconds:.1f}s"
+    if agent_label:
+      timing = f"{timing} • agent {agent_label}"
+    console_width = self._console.size.width or 80
+    capture = Console(width=console_width, record=True)
+    lines = ["", header, details, timing, ""]
+    for line in lines:
+      capture.print(Align(line, align="center", width=console_width))
+    banner_text = capture.export_text().rstrip()
+
     effect = LaserEtch(banner_text)
-    effect.terminal_config.canvas_width = 0
-    effect.terminal_config.canvas_height = 0
-    effect.terminal_config.frame_rate = 60
+    term_cfg = effect.terminal_config
+    term_cfg.canvas_width = 0
+    term_cfg.canvas_height = 0
+    term_cfg.anchor_canvas = "c"
+    term_cfg.anchor_text = "c"
+    term_cfg.frame_rate = 60
     cfg = effect.effect_config
     cfg.etch_direction = "center_to_outside"
     cfg.final_gradient_direction = Gradient.Direction.HORIZONTAL
     with effect.terminal_output() as terminal:
       for frame in effect:
         terminal.print(frame)
+    await asyncio.sleep(0.5)
 
 
 def display_image_bytes_in_terminal(png_bytes: bytes) -> None:
