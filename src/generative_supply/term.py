@@ -13,10 +13,10 @@ from PIL.Image import Resampling
 if TYPE_CHECKING:
   from generative_supply.models import AddedOutcome, Outcome
 from rich import box
+from rich.align import Align
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.align import Align
 from terminaltexteffects.effects.effect_laseretch import LaserEtch
 from terminaltexteffects.utils.graphics import Gradient
 from textual_image.renderable import Image as ConsoleImage
