@@ -98,7 +98,6 @@ class BrowserAgent:
     self._browser_computer = browser_computer
     self._query = query
     self._model_name = model_name
-    self._verbose = verbose
     self.final_reasoning = None
     self._turn_index = 0
     self._output_label = output_label
@@ -345,10 +344,9 @@ class BrowserAgent:
     table.add_column("Gemini Computer Use Reasoning", header_style="magenta", ratio=1)
     table.add_column("Function Call(s)", header_style="cyan", ratio=1)
     table.add_row(reasoning, "\n".join(function_call_strs))
-    if self._verbose:
-      activity_log().print_reasoning(
-        label=self._output_label, turn_index=self._turn_index, table=table
-      )
+    activity_log().print_reasoning(
+      label=self._output_label, turn_index=self._turn_index, table=table
+    )
 
     function_responses: list[FunctionResponse] = []
     for function_call in function_calls:
@@ -363,11 +361,9 @@ class BrowserAgent:
             return LoopStatus.COMPLETE
           # Explicitly mark the safety check as acknowledged.
           extra_fr_fields["safety_acknowledgement"] = "true"
-      if self._verbose:
-        with console.status(self._with_agent_prefix("Sending command to Computer...")):
-          fc_result = await self.handle_action(function_call)
-      else:
-        fc_result = await self.handle_action(function_call)
+
+      activity_log().agent(self._agent_label).operation("Sending command to Computer…")
+      fc_result = await self.handle_action(function_call)
 
       # Handle EnvState responses from computer use functions
       if isinstance(fc_result, EnvState):
