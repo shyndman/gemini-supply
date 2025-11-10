@@ -367,17 +367,14 @@ class BrowserAgent:
       # Handle EnvState responses from computer use functions
       if isinstance(fc_result, EnvState):
         env_state = cast(EnvState, fc_result)
-        # Render the screenshot in the terminal using term-image
-        img_enabled = os.environ.get("GENERATIVE_SUPPLY_IMG_ENABLE", "1").strip().lower()
-        show_img = img_enabled not in ("0", "false", "no")
 
-        if show_img:
-          activity_log().show_screenshot(
-            label=self._output_label,
-            action_name=(function_call.name or ""),
-            url=env_state.url,
-            png_bytes=env_state.screenshot,
-          )
+        # Render the screenshot in the terminal
+        activity_log().show_screenshot(
+          label=self._output_label,
+          action_name=(function_call.name or ""),
+          url=env_state.url,
+          png_bytes=env_state.screenshot,
+        )
         function_responses.append(
           FunctionResponse(
             name=function_call.name,
