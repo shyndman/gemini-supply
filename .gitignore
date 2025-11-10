@@ -184,6 +184,7 @@ node_modules/
 /AGENTS.md
 /CLAUDE.md
 /.claude
+/openspec
 
 # Git worktrees (Crystal)
 /worktrees/

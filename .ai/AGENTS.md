@@ -28,3 +28,22 @@ Follow the repository's present-tense, concise commit style (e.g., `Add concurre
 
 ## Security & Configuration Tips
 Never commit `GEMINI_API_KEY`, Metro credentials, Telegram bot tokens, or home-assistant tokens. Use environment variables (`export GEMINI_API_KEY=...`, `export GENERATIVE_SUPPLY_METRO_USERNAME=...`, `export GENERATIVE_SUPPLY_METRO_PASSWORD=...`, `export GENERATIVE_SUPPLY_USER_DATA_DIR=...`) and keep personal configs in `~/.config/generative-supply/`. The `preferences` section of `config.yaml` should point to a writable YAML file plus Telegram credentials; treat both values as secrets. When sharing repro steps, reference `config.sample.yaml` rather than real credentials. Persistent browser profiles are stored under the user data directory; rotate or isolate them if you suspect credential leakage.
+
+<!-- OPENSPEC:START -->
+# OpenSpec Instructions
+
+These instructions are for AI assistants working in this project.
+
+Always open `@/openspec/AGENTS.md` when the request:
+- Mentions planning or proposals (words like proposal, spec, change, plan)
+- Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
+- Sounds ambiguous and you need the authoritative spec before coding
+
+Use `@/openspec/AGENTS.md` to learn:
+- How to create and apply change proposals
+- Spec format and conventions
+- Project structure and guidelines
+
+Keep this managed block so 'openspec update' can refresh the instructions.
+
+<!-- OPENSPEC:END -->
