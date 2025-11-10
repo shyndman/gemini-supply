@@ -18,6 +18,8 @@ The CLI entry point lives in `src/gemini_supply/main.py`, with session orchestra
 ## Coding Style & Naming Conventions
 Target Python 3.13 features: prefer `TypeA | TypeB` over `Union`, and `Type | None` instead of `Optional`. The repo enforces 2-space indentation and a 100-character line limit via Ruff. Never use `Any`. **FORBIDDEN**: `getattr`, `hasattr`, `setattr`, and all dynamic attribute access are strictly prohibited—model structured data with explicit dataclasses or Pydantic models, and access fields directly. **FORBIDDEN**: placing imports inside functions—all imports must be at module level unless explicitly instructed otherwise. Domain payloads (added item results, shopping summary, etc.) are dataclasses now; do not add new `dict`/`TypedDict` facades. Match existing CLI flag spelling (`--shopping-list`, `--time-budget`) and keep module names snake_case. Prefer imports from `collections.abc` for abstract container types (e.g., `Sequence`).
 
+This is an asyncio project. Don't even think about using a blocking API, like time.sleep.
+
 ## Testing Guidelines
 Use pytest with `pytest-asyncio` fixtures; asynchronous behaviors should be isolated with `async def` tests named `test_*`. Keep new tests alongside their modules in `tests/`. When adding features that touch remote automation or preferences, add regression tests (see `tests/test_preferences_behavior.py`). Run `uv run pytest -n auto -q` plus `ty check` before opening a PR and ensure coverage stays consistent with existing suites.
 
