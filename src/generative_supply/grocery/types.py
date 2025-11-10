@@ -59,13 +59,11 @@ class ShoppingSummary:
   out_of_stock_items: list[str] = field(default_factory=_empty_str_list)
   duplicate_items: list[str] = field(default_factory=_empty_str_list)
   failed_items: list[str] = field(default_factory=_empty_str_list)
-  total_cost_cents: int = 0
-  total_cost_text: str = "$0.00"
   default_fills: list[str] = field(default_factory=_empty_str_list)
   new_defaults: list[str] = field(default_factory=_empty_str_list)
+
   usage_entries: list[UsageSummaryEntry] = field(default_factory=_empty_usage_entries)
   usage_total_cents: int = 0
   usage_total_text: str = "$0.00"
-  usage_entries: list[UsageSummaryEntry] = field(default_factory=_empty_usage_entries)
-  usage_total_cents: int = 0
-  usage_total_text: str = "$0.00"
+  total_cost_cents: int = 0
+  total_cost_text: str = "$0.00"
