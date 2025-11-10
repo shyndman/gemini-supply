@@ -434,7 +434,7 @@ class BrowserAgent:
     return LoopStatus.CONTINUE
 
   def _record_usage(self, response: GenerateContentResponse) -> None:
-    metadata = getattr(response, "usage_metadata", None)
+    metadata = response.usage_metadata
     try:
       quote = self._pricing_engine.quote_from_google_metadata(
         model_name=self._model_name,
@@ -462,7 +462,7 @@ class BrowserAgent:
     )
     print(self._with_agent_prefix(safety["explanation"]))
     user_decision = ""
-    while user_decision.lower() not in ("y", "n", "ye", "yes", "no"):
+    while user_decision.lower() not in ("y", "n", "yes", "no"):
       user_decision = input(self._with_agent_prefix("Do you wish to proceed? [Yes]/[No]\n"))
     if user_decision.lower() in ("n", "no"):
       return "TERMINATE"
