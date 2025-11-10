@@ -299,8 +299,7 @@ class BrowserAgent:
     self._turn_index += 1
 
     # Generate a response from the model.
-    with console.status(self._with_agent_prefix("Generating response from Gemini Computer Use...")):
-      response = await self.get_model_response()
+    response = await self.get_model_response()
     self._record_usage(response)
 
     if not response.candidates:
