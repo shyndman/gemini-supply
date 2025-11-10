@@ -6,7 +6,7 @@ from enum import StrEnum
 from typing import Iterable
 
 from genai_prices import types as price_types
-from google.genai.types import UsageMetadata
+from google.genai.types import GenerateContentResponseUsageMetadata
 from pydantic_ai.usage import RunUsage
 
 
@@ -79,14 +79,16 @@ class TokenUsage:
     )
 
   @classmethod
-  def from_google_metadata(cls, metadata: UsageMetadata | None) -> TokenUsage:
+  def from_google_metadata(
+    cls, metadata: GenerateContentResponseUsageMetadata | None
+  ) -> TokenUsage:
     if metadata is None:
       return cls()
     prompt_tokens = (metadata.prompt_token_count or 0) + (metadata.tool_use_prompt_token_count or 0)
     return cls(
       input_tokens=prompt_tokens,
       cache_read_tokens=metadata.cached_content_token_count or 0,
-      output_tokens=metadata.response_token_count or 0,
+      output_tokens=metadata.candidates_token_count or 0,
     )
 
   @classmethod

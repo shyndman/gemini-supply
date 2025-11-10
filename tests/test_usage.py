@@ -1,4 +1,4 @@
-from google.genai.types import UsageMetadata
+from google.genai.types import GenerateContentResponseUsageMetadata
 
 from generative_supply.usage import (
   CostBreakdown,
@@ -12,11 +12,11 @@ from generative_supply.usage_pricing import PricingEngine
 
 
 def test_token_usage_from_metadata() -> None:
-  metadata = UsageMetadata(
+  metadata = GenerateContentResponseUsageMetadata(
     prompt_token_count=100,
     tool_use_prompt_token_count=20,
     cached_content_token_count=40,
-    response_token_count=60,
+    candidates_token_count=60,
   )
   usage = TokenUsage.from_google_metadata(metadata)
   assert usage.input_tokens == 120
@@ -26,7 +26,10 @@ def test_token_usage_from_metadata() -> None:
 
 def test_pricing_engine_computer_use_override() -> None:
   engine = PricingEngine()
-  metadata = UsageMetadata(prompt_token_count=150_000, response_token_count=100_000)
+  metadata = GenerateContentResponseUsageMetadata(
+    prompt_token_count=150_000,
+    candidates_token_count=100_000,
+  )
   quote = engine.quote_from_google_metadata(
     model_name="gemini-2.5-computer-use-preview-10-2025",
     category=UsageCategory.SHOPPER,
@@ -39,7 +42,10 @@ def test_pricing_engine_computer_use_override() -> None:
 def test_usage_ledger_snapshot_and_total() -> None:
   ledger = UsageLedger()
   engine = PricingEngine()
-  metadata = UsageMetadata(prompt_token_count=50_000, response_token_count=50_000)
+  metadata = GenerateContentResponseUsageMetadata(
+    prompt_token_count=50_000,
+    candidates_token_count=50_000,
+  )
   quote = engine.quote_from_google_metadata(
     model_name="gemini-2.5-computer-use-preview-10-2025",
     category=UsageCategory.SHOPPER,

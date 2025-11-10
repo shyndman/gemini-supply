@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from genai_prices import calc_price
 from genai_prices import types as price_types
-from google.genai.types import UsageMetadata
+from google.genai.types import GenerateContentResponseUsageMetadata
 from pydantic_ai.usage import RunUsage
 
 from generative_supply.usage import (
@@ -55,7 +55,7 @@ class PricingEngine:
     *,
     model_name: str,
     category: UsageCategory,
-    metadata: UsageMetadata | None,
+    metadata: GenerateContentResponseUsageMetadata | None,
   ) -> PricingQuote | None:
     tokens = TokenUsage.from_google_metadata(metadata)
     if not tokens.has_usage():
