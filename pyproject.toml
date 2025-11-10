@@ -57,6 +57,10 @@ extend-select = [
     "PYI032", # any-eq-ne-annotation
 ]
 
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# Don't use time.sleep, use alternative methods like asyncio.sleep or threading.Event
+"time.sleep".msg = "Blocking API 'time.sleep' is disallowed. Use an asynchronous alternative or a threading solution if appropriate."
+
 [tool.pyright]
 reportUnknownMemberAccess = "error"
 reportUnknownVariableType = "error"
