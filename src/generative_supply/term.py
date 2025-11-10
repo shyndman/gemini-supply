@@ -227,28 +227,32 @@ class ActivityLog:
     from generative_supply.models import AddedOutcome, NotFoundOutcome
 
     duration = f"{elapsed_seconds:.1f}s"
-    if isinstance(outcome, AddedOutcome):
-      result = outcome.result
-      notes: list[str] = []
-      if outcome.used_default:
-        notes.append("default used")
-      if outcome.starred_default:
-        notes.append("starred default")
-      note_text = f" ({', '.join(notes)})" if notes else ""
-      message = (
-        f"Completed: Added '{result.item_name}' {result.price_text} ×{result.quantity}{note_text}"
-      )
-      self.agent(agent_label).success(f"=== {message} ({duration}) ===")
-      await self.celebrate_addition(
-        agent_label=agent_label,
-        outcome=outcome,
-        elapsed_seconds=elapsed_seconds,
-      )
-      return
-    elif isinstance(outcome, NotFoundOutcome):
-      message = f"Completed: Not found '{outcome.result.item_name}' — {outcome.result.explanation}"
-    else:
-      message = f"Completed: Failed — {outcome.error}"
+    match outcome:
+      case AddedOutcome(result):
+        notes: list[str] = []
+        if outcome.used_default:
+          notes.append("default used")
+        if outcome.starred_default:
+          notes.append("starred default")
+        note_text = f" ({', '.join(notes)})" if notes else ""
+        message = (
+          f"Completed: Added '{result.item_name}' {result.price_text} ×{result.quantity}{note_text}"
+        )
+
+        self.agent(agent_label).success(f"=== {message} ({duration}) ===")
+        await self.celebrate_addition(
+          agent_label=agent_label,
+          outcome=outcome,
+          elapsed_seconds=elapsed_seconds,
+        )
+        return
+
+      case NotFoundOutcome(result):
+        message = f"Completed: Not found '{result.item_name}' — {result.explanation}"
+
+      case _:
+        message = f"Completed: Failed — {outcome.error}"
+
     self.agent(agent_label).success(f"=== {message} ({duration}) ===")
 
   async def celebrate_addition(
