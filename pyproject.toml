@@ -62,13 +62,13 @@ extend-select = [
 "time.sleep".msg = "Blocking API 'time.sleep' is disallowed. Use an asynchronous alternative or a threading solution if appropriate."
 
 [tool.pyright]
-reportUnknownMemberAccess = "error"
-reportUnknownVariableType = "error"
 reportUnknownArgumentType = "error"
+reportUnknownMemberAccess = "error"
 reportUnknownParameterType = "error"
+reportUnknownVariableType = "error"
 reportUnsupportedDunderAll = "error"
-venvPath = "."
 venv = ".venv"
+venvPath = "."
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
